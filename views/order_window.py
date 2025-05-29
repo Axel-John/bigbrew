@@ -2,16 +2,34 @@ import flet as ft
 from flet import (
     Page, Row, Column, Container, Text, TextField, IconButton, Icons, Icon, alignment, padding, Colors, Stack, CircleAvatar, BoxShadow
 )
-from config.database import get_db_connection
+from config.database import get_db_connection, insert_order, fetch_pending_orders
+from utils.password import hash_password
 
 selected_index = 0
+selected_payment_method = None  # No default selection
+
+# At the top of main():
+cash_btn_ref = ft.Ref[ft.ElevatedButton]()
+gcash_btn_ref = ft.Ref[ft.ElevatedButton]()
+
+# At the top-level of main():
+void_modal_width = 320
+void_modal_height = 180  # You can adjust this value as needed
 
 def main(page: Page):
-    global selected_index
+    global selected_index, selected_payment_method
+    selected_index = 0
     page.title = "ORDER WINDOW"
     page.bgcolor = "#EDEDED"
     page.window_width = 1200
     page.window_height = 900
+
+    # Declare variables that will be used in the dialog
+    selected_add_ons = []
+    selected_size = None
+    quantity = 1
+    add_ons_sum = None
+    subtotal_text = None
 
     # Hardcoded categories and their images
     def fetch_category_counts():
@@ -360,11 +378,11 @@ def main(page: Page):
         if filtered_products:
             return [
                 product_card(
-                    product[1] if product[1] else 'assets/images/placeholder.png',  # Image path
-                    product[0],  # Product name
-                    product[3]   # Product price
+                    p[1] if p[1] else 'assets/images/placeholder.png',  # Image path
+                    p[0],  # Product name
+                    p[3]   # Product price
                 )
-                for product in filtered_products
+                for p in filtered_products
             ]
         else:
             return [
@@ -410,62 +428,175 @@ def main(page: Page):
 
     # Function to build the review order container
     def build_review_order_container():
+        orders = fetch_pending_orders()
+        total_items = sum(order[4] for order in orders)  # quantity
+        subtotal = sum(order[5] for order in orders)  # price
+        add_ons_total = sum(len(order[3].split(", ")) * 9 if order[3] else 0 for order in orders)
+        grand_total = subtotal + add_ons_total
+
         return ft.Row(
             controls=[
                 # Order Cart Section
                 ft.Container(
                     content=ft.Column(
                         controls=[
-                            ft.Text("Order Cart", size=20, weight="bold", color="black"),
-                            ft.Divider(height=1, thickness=1, color="black"),
                             ft.Row(
                                 controls=[
-                                    ft.Text("Order Details", size=14, weight="bold", color="black", width=250),
-                                    ft.Text("Sizes", size=14, weight="bold", color="black", width=100),
-                                    ft.Text("Add-ons", size=14, weight="bold", color="black", width=200),
-                                    ft.Text("Quantity", size=14, weight="bold", color="black", width=150),
-                                    ft.Text("Price", size=14, weight="bold", color="black", width=100),
-                                    ft.Text("Total", size=14, weight="bold", color="black", width=100),
+                                    ft.Text("Order Cart", size=20, weight="bold", color="black", font_family="Poppins"),
+                                    ft.ElevatedButton(
+                                        content=ft.Text("Void Order", font_family="Poppins", weight="bold"),
+                                        style=ft.ButtonStyle(
+                                            bgcolor="#E53935",
+                                            color="white",
+                                            padding=ft.padding.symmetric(horizontal=18, vertical=8),
+                                            shape=ft.RoundedRectangleBorder(radius=8),
+                                        ),
+                                        on_click=lambda e: open_void_password_modal(),
+                                    ),
                                 ],
                                 alignment="spaceBetween",
-                                spacing=20,
                             ),
+                            ft.Divider(height=1, thickness=1, color="black"),
+                            # Header row with adjusted widths and alignment
                             ft.Row(
                                 controls=[
+                                    ft.Container(
+                                        content=ft.Text("Order Details", size=14, weight="bold", color="black"),
+                                        width=300,
+                                        alignment=ft.alignment.center_left,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text("Size", size=14, weight="bold", color="black"),
+                                        width=80,
+                                        alignment=ft.alignment.center,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text("Add-ons", size=14, weight="bold", color="black"),
+                                        width=150,
+                                        alignment=ft.alignment.center,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text("Quantity", size=14, weight="bold", color="black"),
+                                        width=80,
+                                        alignment=ft.alignment.center,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text("Price", size=14, weight="bold", color="black"),
+                                        width=100,
+                                        alignment=ft.alignment.center,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Text("Total", size=14, weight="bold", color="black"),
+                                        width=100,
+                                        alignment=ft.alignment.center,
+                                    ),
+                                ],
+                                alignment="spaceBetween",
+                                spacing=10,
+                            ),
+                            *[
+                                ft.Column([
+                            ft.Row(
+                                        controls=[
+                                            # Product details with image
+                                            ft.Container(
+                                                content=ft.Row(
+                                controls=[
                                     ft.Image(
-                                        src="assets/menu/milk_tea/okinawa.png",
-                                        width=50,
-                                        height=50,
+                                                            src=order[8] if order[8] else "assets/images/placeholder.png",
+                                                            width=40,
+                                                            height=40,
                                         fit=ft.ImageFit.CONTAIN,
+                                                            error_content=ft.Icon(name="image_not_supported", color="red", size=20),
                                     ),
                                     ft.Column(
                                         controls=[
-                                            ft.Text("Milk Tea Okinawa", size=14, color="black"),
-                                            ft.Text("Remove", size=12, color="red"),
+                                                                ft.Text(
+                                                                    order[1],  # product_name
+                                                                    size=14,
+                                                                    color="black",
+                                                                    width=250,
+                                                                ),
+                                                                ft.Text(
+                                                                    order[9],  # product type
+                                                                    size=12,
+                                                                    color="gray",
+                                                                    width=250,
+                                                                ),
                                         ],
                                         spacing=2,
-                                    ),
-                                    ft.Text("Grande", size=14, color="black"),
-                                    ft.Text("Pearl, Cream Cheese", size=14, color="black"),
-                                    ft.Row(
-                                        controls=[
-                                            ft.IconButton(icon=ft.Icons.REMOVE, icon_color="black"),
-                                            ft.Text("1", size=14, color="black"),
-                                            ft.IconButton(icon=ft.Icons.ADD, icon_color="black"),
+                                                            alignment=ft.MainAxisAlignment.CENTER,
+                                                        ),
                                         ],
                                         spacing=5,
-                                    ),
-                                    ft.Text("₱45", size=14, color="black"),
-                                    ft.Text("₱45", size=14, color="black"),
+                                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                                width=300,
+                                                alignment=ft.alignment.center_left,
+                                            ),
+                                            # Size
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    order[2],  # size
+                                                    size=14,
+                                                    color="black",
+                                                ),
+                                                width=80,
+                                                alignment=ft.alignment.center,
+                                            ),
+                                            # Add-ons
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    order[3] if order[3] else "None",  # add_ons
+                                                    size=14,
+                                                    color="black",
+                                                ),
+                                                width=150,
+                                                alignment=ft.alignment.center,
+                                            ),
+                                            # Quantity
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    str(order[4]),  # quantity
+                                                    size=14,
+                                                    color="black",
+                                                ),
+                                                width=80,
+                                                alignment=ft.alignment.center,
+                                            ),
+                                            # Price
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    f"₱{order[5]/order[4]:.2f}",  # price per item
+                                                    size=14,
+                                                    color="black",
+                                                ),
+                                                width=100,
+                                                alignment=ft.alignment.center,
+                                            ),
+                                            # Total
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    f"₱{order[5]:.2f}",  # total price
+                                                    size=14,
+                                                    color="black",
+                                                ),
+                                                width=100,
+                                                alignment=ft.alignment.center,
+                                            ),
                                 ],
                                 alignment="spaceBetween",
-                                spacing=20,
+                                        spacing=10,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
+                                    ft.Divider(height=1, thickness=1, color="#B87A2A"),  # Add a divider after each row
+                                ]) for order in orders
+                            ],
                         ],
                         spacing=10,
                     ),
-                    width=1100,  # Updated width
-                    height=500,  # Updated height
+                    width=1100,
+                    height=500,
                     bgcolor="white",
                     border_radius=20,
                     padding=ft.padding.all(20),
@@ -475,85 +606,65 @@ def main(page: Page):
                 ft.Container(
                     content=ft.Column(
                         controls=[
-                            ft.Text("Order Summary", size=20, weight="bold", color="black"),
-                            ft.Divider(height=1, thickness=1, color="black"),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("Total Items", size=14, color="black"),
-                                    ft.Text("1", size=14, color="black"),
-                                ],
-                                alignment="spaceBetween",
+                            ft.Text("Order Summary", size=22, weight="bold", color="black", font_family="Poppins"),
+                            ft.Divider(height=1, thickness=1, color="#7B6B63"),
+                            ft.Row([
+                                ft.Text("Total Items", size=15, weight="bold", font_family="Poppins"),
+                                ft.Text(str(total_items), size=15, weight="bold", font_family="Poppins"),
+                            ], alignment="spaceBetween"),
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Column([
+                                        ft.Text("Subtotal", size=15, font_family="Poppins"),
+                                        ft.Text("Add-ons", size=15, font_family="Poppins"),
+                                    ], spacing=2),
+                                    ft.Column([
+                                        ft.Text(f"₱{subtotal:.0f}", size=15, font_family="Poppins"),
+                                        ft.Text(f"₱{add_ons_total:.0f}", size=15, font_family="Poppins"),
+                                    ], spacing=2),
+                                ], alignment="spaceBetween"),
+                                padding=ft.padding.only(bottom=0, top=0),
                             ),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("Subtotal", size=14, color="black"),
-                                    ft.Text("₱45", size=14, color="black"),
-                                ],
-                                alignment="spaceBetween",
+                            ft.Container(
+                                content=ft.Divider(height=1, thickness=1, color="#7B6B63"),
+                                padding=ft.padding.symmetric(vertical=2),
                             ),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("Add-ons", size=14, color="black"),
-                                    ft.Text("₱18", size=14, color="black"),
-                                ],
-                                alignment="spaceBetween",
+                            ft.Row([
+                                ft.Text("Grand Total", size=17, weight="bold", font_family="Poppins"),
+                                ft.Text(f"₱{grand_total:.0f}", size=17, weight="bold", font_family="Poppins"),
+                            ], alignment="spaceBetween"),
+                            ft.Container(
+                                content=ft.Divider(height=1, thickness=1, color="#7B6B63"),
+                                padding=ft.padding.symmetric(vertical=2),
                             ),
-                            ft.Divider(height=1, thickness=1, color="black"),
-                            ft.Row(
-                                controls=[
-                                    ft.Text("Grand Total", size=16, weight="bold", color="black"),
-                                    ft.Text("₱63", size=16, weight="bold", color="black"),
-                                ],
-                                alignment="spaceBetween",
+                            ft.Text("Payment Method", size=15, font_family="Poppins"),
+                            build_payment_method_row(),
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Text("Estimated Prep Time: ", size=15, font_family="Poppins"),
+                                    ft.Text("5-7 mins", size=15, font_family="Poppins"),
+                                ], alignment="spaceBetween"),
+                                padding=ft.padding.only(top=8, bottom=8),
                             ),
-                            ft.Text("Payment Method", size=14, color="black"),
-                            ft.Row(
-                                controls=[
                                     ft.ElevatedButton(
-                                        "Cash",
-                                        style=ft.ButtonStyle(
-                                            bgcolor="#FAD7A0",
-                                            color="black",
-                                            padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                                        ),
-                                    ),
-                                    ft.ElevatedButton(
-                                        "GCash",
-                                        style=ft.ButtonStyle(
-                                            bgcolor="#FAD7A0",
-                                            color="black",
-                                            padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                                        ),
-                                    ),
-                                ],
-                                spacing=10,
-                            ),
-                            ft.Text("Estimated Prep Time", size=14, color="black"),
-                            ft.Text("5-7 mins", size=14, color="black"),
-                            ft.ElevatedButton(
-                                "Confirm Order",
+                                content=ft.Text("Confirm Order", font_family="Poppins", size=15, weight="bold"),
                                 style=ft.ButtonStyle(
                                     bgcolor="black",
                                     color="white",
-                                    padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                                    padding=ft.padding.symmetric(horizontal=0, vertical=10),
+                                    shape=ft.RoundedRectangleBorder(radius=12),
                                 ),
-                            ),
-                            ft.ElevatedButton(
-                                "Modify",
-                                style=ft.ButtonStyle(
-                                    bgcolor="#E0E0E0",
-                                    color="black",
-                                    padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                                ),
+                                width=180,
                             ),
                         ],
                         spacing=10,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    width=300,  # Updated width
-                    height=500,  # Updated height
-                    bgcolor="#FAD7A0",
+                    width=300,
+                    height=500,
+                    bgcolor="#D2A06D",
                     border_radius=20,
-                    padding=ft.padding.all(20),
+                    padding=ft.padding.all(28),
                     shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.1, ft.Colors.BLACK)),
                 ),
             ],
@@ -563,31 +674,132 @@ def main(page: Page):
 
     # Dialog for adding items to order
     def show_add_to_order_dialog(product_name, medio_price, product_image):
+        nonlocal selected_add_ons, selected_size, quantity, add_ons_sum, subtotal_text
         grande_price = medio_price + 10  # Calculate Grande price by adding 10 to Medio price
+        
+        # Reset values for new dialog
         selected_add_ons = []  # Track selected add-ons
+        selected_size = None  # Track selected size
+        quantity = 1  # Initialize quantity
 
         # Define add_ons_sum to display the total cost of selected add-ons
-        add_ons_sum = ft.Text("Total Add-ons: ₱0.00", size=14, color="black")
+        add_ons_sum = ft.Text("Total Add-ons: ₱0.00", size=14, weight="bold", color="black")
+        subtotal_text = ft.Text("Subtotal: ₱0.00", size=14, weight="bold", color="black")
+
+        # List of all add-ons
+        all_add_ons = [
+            "Pearl", "Crystal", "Cream Cheese", "Coffee Jelly", "Crushed Oreo", "Cream Puff", "Cheesecake"
+        ]
+        add_on_buttons = {}
+        
+        def make_add_on_button(add_on):
+            btn = ft.ElevatedButton(
+                add_on,
+                style=ft.ButtonStyle(
+                    bgcolor="#E0E0E0",
+                    color="black",
+                    padding=ft.padding.symmetric(horizontal=10, vertical=5),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+                on_click=lambda e, a=add_on: toggle_add_on(a),
+            )
+            add_on_buttons[add_on] = btn
+            return btn
+
+        add_on_btn_list = [make_add_on_button(a) for a in all_add_ons]
 
         def toggle_add_on(add_on):
+            nonlocal selected_add_ons
+            # Allow multiple selections (check-style)
+            btn = add_on_buttons[add_on]
             if add_on in selected_add_ons:
                 selected_add_ons.remove(add_on)
+                btn.style.bgcolor = "#E0E0E0"
             else:
                 selected_add_ons.append(add_on)
+                btn.style.bgcolor = "#BB6F19"
+            btn.update()
             update_add_ons_sum()
 
         def update_add_ons_sum():
+            nonlocal add_ons_sum
             add_ons_sum.value = f"Total Add-ons: ₱{len(selected_add_ons) * 9:.2f}"
             add_ons_sum.update()
+            update_subtotal()
+
+        def select_size(size):
+            nonlocal selected_size
+            selected_size = size
+            # Update button styles
+            medio_button.style.bgcolor = "#BB6F19" if size == "Medio" else "#E0E0E0"
+            grande_button.style.bgcolor = "#BB6F19" if size == "Grande" else "#E0E0E0"
+            medio_button.update()
+            grande_button.update()
+            update_subtotal()
+
+        def update_subtotal():
+            nonlocal subtotal_text
+            if selected_size:
+                base_price = medio_price if selected_size == "Medio" else grande_price
+                add_ons_price = len(selected_add_ons) * 9
+                total = (base_price + add_ons_price) * quantity
+                subtotal_text.value = f"Subtotal: ₱{total:.2f}"
+            else:
+                subtotal_text.value = "Subtotal: ₱0.00"
+            subtotal_text.update()
 
         def update_quantity(change):
             nonlocal quantity
             quantity = max(1, quantity + change)  # Ensure quantity is at least 1
             quantity_text.value = str(quantity)
             quantity_text.update()
+            update_subtotal()
 
-        quantity = 1  # Initialize quantity
         quantity_text = ft.Text(str(quantity), size=14, color="black")
+
+        # Create size buttons with initial gray style
+        medio_button = ft.ElevatedButton(
+            "Medio",
+            style=ft.ButtonStyle(
+                bgcolor="#E0E0E0",  # Default gray color
+                color="black",
+                padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                shape=ft.RoundedRectangleBorder(radius=8),
+            ),
+            on_click=lambda e: select_size("Medio"),
+        )
+
+        grande_button = ft.ElevatedButton(
+            "Grande",
+            style=ft.ButtonStyle(
+                bgcolor="#E0E0E0",  # Default gray color
+                color="black",
+                padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                shape=ft.RoundedRectangleBorder(radius=8),
+            ),
+            on_click=lambda e: select_size("Grande"),
+        )
+
+        def add_to_order():
+            nonlocal selected_size, selected_add_ons, quantity, medio_price, grande_price, product_name
+            if not selected_size:
+                return
+            base_price = medio_price if selected_size == "Medio" else grande_price
+            add_ons_price = len(selected_add_ons) * 9
+            total_price = (base_price + add_ons_price) * quantity
+            add_ons_str = ", ".join(selected_add_ons)
+            
+            # Insert the order into the database
+            if insert_order(product_name, selected_size, add_ons_str, quantity, total_price):
+                close_add_to_order_dialog()
+                # Update the review order display if we're on that tab
+                if selected_index == len(categories) - 1:
+                    white_container_ref.current.content = build_review_order_container()
+                    white_container_ref.current.update()
+                    page.update()
+            else:
+                # Show error message if order insertion failed
+                print("Failed to add order to database")
 
         # Create the dialog container
         add_to_order_dialog = ft.Container(
@@ -623,7 +835,10 @@ def main(page: Page):
                             alignment="spaceBetween",
                         ),
                         ft.Divider(height=1, thickness=1, color="black"),
-                        # Product Image
+                        # Product Image and Size Options in a Row
+                        ft.Row(
+                            controls=[
+                                # Left side - Product Image
                         ft.Container(
                             content=ft.Image(
                                 src=product_image,
@@ -633,28 +848,56 @@ def main(page: Page):
                                 border_radius=8,
                             ),
                             alignment=ft.alignment.center,
+                                    expand=True,
                         ),
-                        # Size Options
-                        ft.Row(
+                                # Right side - Size Options
+                                ft.Container(
+                                    content=ft.Column(
                             controls=[
-                                ft.Column(
+                                            ft.Text("Select Size", size=16, weight="bold", color="black"),
+                                            ft.Container(
+                                                content=ft.Column(
                                     controls=[
-                                        ft.Text("Medio", size=16, weight="bold", color="black"),
-                                        ft.Text(f"₱{medio_price:.2f}", size=14, color="black"),
-                                    ],
-                                    alignment="center",
-                                ),
-                                ft.Column(
-                                    controls=[
-                                        ft.Text("Grande", size=16, weight="bold", color="black"),
-                                        ft.Text(f"₱{grande_price:.2f}", size=14, color="black"),
-                                    ],
-                                    alignment="center",
+                                                        medio_button,
+                                                        ft.Text(f"₱{medio_price:.2f}", size=14, color="black", text_align="center"),
+                                                        grande_button,
+                                                        ft.Text(f"₱{grande_price:.2f}", size=14, color="black", text_align="center"),
+                                                    ],
+                                                    spacing=5,
+                                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                ),
+                                            ),
+                                        ],
+                                        spacing=10,
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                    expand=True,
                                 ),
                             ],
-                            alignment="spaceAround",
+                            alignment="spaceBetween",
+                            spacing=20,
                         ),
-                        # Quantity Section
+                        # Add-ons Section (second)
+                                ft.Column(
+                                    controls=[
+                                ft.Text("Add-ons:", size=14, weight="bold", color="black"),
+                                ft.Container(
+                                    content=ft.Row(
+                                        controls=add_on_btn_list,
+                                        spacing=10,
+                                        wrap=True,
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                    ),
+                                    padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                                    alignment=ft.alignment.center,
+                                ),
+                                add_ons_sum,
+                            ],
+                            spacing=10,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        # Quantity Section (third)
+                        ft.Column([
                         ft.Row(
                             controls=[
                                 ft.Text("Quantity:", size=14, color="black"),
@@ -683,40 +926,8 @@ def main(page: Page):
                             alignment="start",
                             spacing=10,
                         ),
-                        # Add-ons Section
-                        ft.Column(
-                            controls=[
-                                ft.Text("Add-ons:", size=14, weight="bold", color="black"),
-                                ft.Row(
-                                    controls=[
-                                        ft.ElevatedButton(
-                                            "Pearl",
-                                            style=ft.ButtonStyle(
-                                                bgcolor="#BB6F19",
-                                                color="white",
-                                                padding=ft.padding.symmetric(horizontal=10, vertical=5),
-                                                shape=ft.RoundedRectangleBorder(radius=8),
-                                            ),
-                                            on_click=lambda e: toggle_add_on("Pearl"),
-                                        ),
-                                        ft.ElevatedButton(
-                                            "Crystal",
-                                            style=ft.ButtonStyle(
-                                                bgcolor="#BB6F19",
-                                                color="white",
-                                                padding=ft.padding.symmetric(horizontal=10, vertical=5),
-                                                shape=ft.RoundedRectangleBorder(radius=8),
-                                            ),
-                                            on_click=lambda e: toggle_add_on("Crystal"),
-                                        ),
-                                    ],
-                                    spacing=10,
-                                    wrap=True,
-                                ),
-                                add_ons_sum,
-                            ],
-                            spacing=10,
-                        ),
+                            subtotal_text,
+                        ], spacing=5),
                         # Action Buttons
                         ft.Row(
                             controls=[
@@ -738,7 +949,7 @@ def main(page: Page):
                                         padding=ft.padding.symmetric(horizontal=20, vertical=10),
                                         shape=ft.RoundedRectangleBorder(radius=8),
                                     ),
-                                    on_click=lambda e: add_to_order(),
+                                    on_click=lambda e: add_to_order() if selected_size else None,  # Only allow adding if size is selected
                                 ),
                             ],
                             alignment="end",
@@ -770,10 +981,133 @@ def main(page: Page):
             quantity_text.value = str(new_quantity)
             quantity_text.update()
 
-    def add_to_order():
-        # Logic to add the product to the order
-        print("Product added to order")
-        close_add_to_order_dialog()
+    # At the top-level of main():
+    manager_password_field = ft.TextField(
+        label="Enter Passowrd",
+        width=250,
+        password=True,
+        border=ft.InputBorder.OUTLINE,
+    )
+    void_error_text = ft.Text("", color="red", size=12)
+
+    # Password modal
+    void_password_modal = ft.Container(
+        visible=False,
+        alignment=ft.alignment.center,
+        bgcolor=ft.Colors.with_opacity(0.5, ft.Colors.BLACK),
+        expand=True,
+        content=ft.Container(
+            width=void_modal_width,
+            height=void_modal_height,
+            bgcolor="white",
+            border_radius=12,
+            padding=ft.padding.all(20),
+            content=ft.Column([
+                ft.Text("Manager Approval", size=18, weight="bold", font_family="Poppins"),
+                manager_password_field,
+                void_error_text,
+                ft.Row([
+                    ft.ElevatedButton("Cancel", on_click=lambda e: close_void_password_modal()),
+                    ft.ElevatedButton("Submit", on_click=lambda e: check_manager_password()),
+                ], alignment="end", spacing=10),
+            ], spacing=10),
+        ),
+    )
+
+    # Add modal to page.overlay if not already present
+    if void_password_modal not in page.overlay:
+        page.overlay.append(void_password_modal)
+
+    # Functions to control modal flow
+    def open_void_password_modal():
+        manager_password_field.value = ""
+        void_error_text.value = ""
+        void_password_modal.visible = True
+        page.update()
+
+    def close_void_password_modal():
+        void_password_modal.visible = False
+        void_error_text.value = ""
+        page.update()
+
+    def check_manager_password():
+        conn = get_db_connection()
+        if conn and conn.is_connected():
+            cursor = conn.cursor()
+            cursor.execute("SELECT password FROM admin WHERE username = 'BBADMIN'")
+            row = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if row:
+                db_hashed_pw = row[0]
+                entered_hashed_pw = hash_password(manager_password_field.value)
+                if entered_hashed_pw == db_hashed_pw:
+                    void_password_modal.visible = False
+                    page.update()
+                    return
+        void_error_text.value = "Incorrect manager password."
+        page.update()
+
+    # Function to update payment method
+    def select_payment_method(method):
+        global selected_payment_method
+        selected_payment_method = method
+        page.update()
+
+    # Update build_payment_method_row to use refs and update styles on click
+    def build_payment_method_row():
+        def update_payment_buttons():
+            if cash_btn_ref.current:
+                cash_btn_ref.current.style.bgcolor = "#B87A2A" if selected_payment_method == "Cash" else "#F5E9DA"
+                cash_btn_ref.current.style.color = "white" if selected_payment_method == "Cash" else "#B87A2A"
+                cash_btn_ref.current.update()
+            if gcash_btn_ref.current:
+                gcash_btn_ref.current.style.bgcolor = "#1976D2" if selected_payment_method == "GCash" else "white"
+                gcash_btn_ref.current.style.color = "white" if selected_payment_method == "GCash" else "#1976D2"
+                gcash_btn_ref.current.style.side = ft.border.all(1, "#B87A2A") if selected_payment_method != "GCash" else None
+                gcash_btn_ref.current.update()
+
+        def on_cash_click(e):
+            global selected_payment_method
+            selected_payment_method = "Cash"
+            update_payment_buttons()
+
+        def on_gcash_click(e):
+            global selected_payment_method
+            selected_payment_method = "GCash"
+            update_payment_buttons()
+
+        return ft.Row([
+            ft.ElevatedButton(
+                ref=cash_btn_ref,
+                content=ft.Row([
+                    ft.Image(src="assets/icons/cash.png", width=22, height=22),
+                    ft.Text("Cash", font_family="Poppins", size=15, weight="bold"),
+                ], spacing=8),
+                style=ft.ButtonStyle(
+                    bgcolor="#B87A2A" if selected_payment_method == "Cash" else "#F5E9DA",
+                    color="white" if selected_payment_method == "Cash" else "#B87A2A",
+                    padding=ft.padding.symmetric(horizontal=18, vertical=8),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+                on_click=on_cash_click,
+            ),
+            ft.ElevatedButton(
+                ref=gcash_btn_ref,
+                content=ft.Row([
+                    ft.Image(src="assets/icons/gcash.png", width=22, height=22),
+                    ft.Text("GCash", font_family="Poppins", size=15, weight="bold"),
+                ], spacing=8),
+                style=ft.ButtonStyle(
+                    bgcolor="#1976D2" if selected_payment_method == "GCash" else "white",
+                    color="white" if selected_payment_method == "GCash" else "#1976D2",
+                    padding=ft.padding.symmetric(horizontal=18, vertical=8),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                    side=ft.border.all(1, "#B87A2A") if selected_payment_method != "GCash" else None,
+                ),
+                on_click=on_gcash_click,
+            ),
+        ], spacing=10)
 
     # Main layout
     page.add(

@@ -94,6 +94,20 @@ def init_db():
                 VALUES (%s, %s, %s)
             """, ('BBADMIN', 'Big Brew Admin', hash_password('admin123')))
 
+        # Create orders table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                order_id INT AUTO_INCREMENT PRIMARY KEY,
+                product_name VARCHAR(100) NOT NULL,
+                size VARCHAR(20) NOT NULL,
+                add_ons VARCHAR(255),
+                quantity INT NOT NULL,
+                price DECIMAL(10,2) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -125,5 +139,40 @@ def create_employee_admin():
             print("Employee admin account already exists.")
         cursor.close()
         conn.close()
+
+# --- ORDER FUNCTIONS ---
+def insert_order(product_name, size, add_ons, quantity, price):
+    conn = get_db_connection()
+    if conn and conn.is_connected():
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO orders (product_name, size, add_ons, quantity, price, status)
+            VALUES (%s, %s, %s, %s, %s, 'Pending')
+            """,
+            (product_name, size, add_ons, quantity, price)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    return False
+
+def fetch_pending_orders():
+    conn = get_db_connection()
+    if conn and conn.is_connected():
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT o.order_id, o.product_name, o.size, o.add_ons, o.quantity, o.price, o.status, o.created_at, p.image_path, p.type 
+            FROM orders o 
+            LEFT JOIN products p ON o.product_name = p.name 
+            WHERE o.status = 'Pending' 
+            ORDER BY o.created_at DESC
+        """)
+        orders = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return orders
+    return []
 
 init_db()
