@@ -3,7 +3,6 @@ from views.dashboard import dashboard_view
 from views.products import products_view
 from views.transactions import transactions_view
 from views.reports import reports_view
-from views.users import users_view  # Import the users view
 
 class Navigation:
     def __init__(self, page: ft.Page, content_container=None):
@@ -16,10 +15,7 @@ class Navigation:
             "transactions": transactions_view,
             "reports": reports_view
         }
-        self.views.update({
-            "users": users_view  # Add the users view to the navigation
-        })
-        self.on_tab_change = None  # Will be set from admin_dashboard.py
+        self.on_tab_change = None
 
     def sidebar(self):
         return ft.Container(
@@ -41,7 +37,6 @@ class Navigation:
                 self._nav_item("products", "Manage Product", ft.Icons.INVENTORY_2_OUTLINED),
                 self._nav_item("transactions", "Transactions", ft.Icons.RECEIPT_LONG_OUTLINED),
                 self._nav_item("reports", "Sales Reports", ft.Icons.BAR_CHART),
-                self._nav_item("users", "Manage Users", ft.Icons.PEOPLE),  # Add the "Users" tab
             ], spacing=20, alignment="start"),
             padding=20,
             border_radius=10,

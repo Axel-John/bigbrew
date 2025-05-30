@@ -1,5 +1,5 @@
 import flet as ft
-from config.database import get_db_connection
+from config.database import get_db_connection, get_employee_full_name
 
 def get_admin_full_name():
     try:
@@ -262,79 +262,23 @@ def reports_view(page: ft.Page):
 
     # User Profile Card
     def user_profile_card():
-        def handle_logout(page):
-            # Create a custom modal dialog for logout confirmation
-            logout_modal = ft.Container(
-                visible=False,
-                alignment=ft.alignment.center,
-                bgcolor=ft.Colors.with_opacity(0.5, ft.Colors.BLACK),
-                expand=True,
-                content=ft.Container(
-                    width=400,
-                    height=150,
-                    bgcolor=ft.Colors.WHITE,
-                    border_radius=15,
-                    padding=ft.padding.all(20),
-                    alignment=ft.alignment.center,
-                    content=ft.Column(
-                        spacing=20,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Text("Confirm Logout", size=18, weight="bold"),
-                            ft.Text("Are you sure you want to logout?", size=14, color=ft.Colors.GREY),
-                            ft.Row(
-                                alignment=ft.MainAxisAlignment.CENTER,  # Center the buttons
-                                spacing=10,
-                                controls=[
-                                    ft.ElevatedButton(
-                                        "Cancel",
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ft.Colors.GREY,
-                                            color=ft.Colors.WHITE,
-                                            padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                                            shape=ft.RoundedRectangleBorder(radius=8),
-                                        ),
-                                        on_click=lambda e: close_logout_modal(),
-                                    ),
-                                    ft.ElevatedButton(
-                                        "Logout",
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ft.Colors.RED,
-                                            color=ft.Colors.WHITE,
-                                            padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                                            shape=ft.RoundedRectangleBorder(radius=8),
-                                        ),
-                                        on_click=lambda e: confirm_logout(),
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-            )
-
-            # Add the modal to the page overlay
-            page.overlay.append(logout_modal)
-
-            def confirm_logout():
-                logout_modal.visible = False  # Hide the modal
-                page.overlay.remove(logout_modal)  # Remove the modal from the overlay
-                page.update()  # Update the page to reflect changes
-                page.clean()  # Clear all existing UI elements
-                page.bgcolor = "white"  # Reset the background color to white
-                from views.login import main
-                main(page)  # Redirect to the login window
-                page.update()
-
-            def close_logout_modal():
-                logout_modal.visible = False  # Hide the modal
-                page.overlay.remove(logout_modal)  # Remove the modal from the overlay
-                page.update()  # Update the page to reflect changes
-
-            # Show the modal
-            logout_modal.visible = True
-            page.update()
-
+        user_id = page.session.get("user_id")
+        full_name = get_employee_full_name(user_id)
+        if not full_name or full_name.lower() == 'none':
+            try:
+                conn = get_db_connection()
+                if conn and conn.is_connected():
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT full_name FROM admin WHERE id = %s", (user_id,))
+                    row = cursor.fetchone()
+                    cursor.close()
+                    conn.close()
+                    if row and row[0]:
+                        full_name = row[0]
+                    else:
+                        full_name = "Admin"
+            except Exception:
+                full_name = "Admin"
         return ft.Container(
             content=ft.Row([
                 ft.CircleAvatar(
@@ -343,8 +287,7 @@ def reports_view(page: ft.Page):
                     radius=18
                 ),
                 ft.Column([
-                    ft.Text(admin_full_name, weight="bold", size=16, font_family="Poppins"),
-                    ft.Text("Barista", size=12, color=ft.Colors.GREY, font_family="Poppins")
+                    ft.Text(full_name, weight="bold", size=16, font_family="Poppins"),
                 ], spacing=0),
                 ft.IconButton(
                     icon=ft.Icons.LOGOUT,

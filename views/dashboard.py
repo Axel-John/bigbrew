@@ -1,6 +1,6 @@
 import flet as ft
 import datetime
-from config.database import get_db_connection
+from config.database import get_db_connection, get_employee_full_name
 
 def SummaryStatBox(icon, icon_color, title, value, change, change_color, change_text, subtext):
     return ft.Container(
@@ -70,6 +70,23 @@ def dashboard_view(page: ft.Page):
     user_name = get_logged_in_user()
 
     def user_profile_card():
+        user_id = page.session.get("user_id")
+        full_name = get_employee_full_name(user_id)
+        if not full_name or full_name.lower() == 'none':
+            try:
+                conn = get_db_connection()
+                if conn and conn.is_connected():
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT full_name FROM admin WHERE id = %s", (user_id,))
+                    row = cursor.fetchone()
+                    cursor.close()
+                    conn.close()
+                    if row and row[0]:
+                        full_name = row[0]
+                    else:
+                        full_name = "Admin"
+            except Exception:
+                full_name = "Admin"
         return ft.Container(
             content=ft.Row([
                 ft.CircleAvatar(
@@ -78,8 +95,7 @@ def dashboard_view(page: ft.Page):
                     radius=18
                 ),
                 ft.Column([
-                    ft.Text(user_name, weight="bold", size=16, font_family="Poppins"),
-                    ft.Text("Barista", size=12, color=ft.Colors.GREY, font_family="Poppins")
+                    ft.Text(full_name, weight="bold", size=16, font_family="Poppins"),
                 ], spacing=0),
                 ft.IconButton(
                     icon=ft.Icons.LOGOUT,

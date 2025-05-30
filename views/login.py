@@ -141,7 +141,6 @@ def main(page: Page):
             error_text.value = f"Logging in as {result[1]} {result[2]}"
             error_text.color = "green"
             error_text.visible = True
-            
             # Clear fields
             employee_id_field.value = ""
             password_field.value = ""
