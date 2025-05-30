@@ -574,15 +574,18 @@ def main(page_obj: Page):
             def save_edit():
                 base_price = medio_price if selected_size == "Medio" else grande_price
                 add_ons_price = len(selected_add_ons) * 9
-                total_price = (base_price + add_ons_price) * quantity
+                subtotal_price = (base_price * quantity) + add_ons_price  # Calculate subtotal separately
                 add_ons_str = ", ".join(selected_add_ons)
                 try:
                     conn = get_db_connection()
                     if conn and conn.is_connected():
                         cursor = conn.cursor()
+                        # Update size, add-ons, and quantity, but keep the base price unchanged
                         cursor.execute("""
-                            UPDATE orders SET size=%s, add_ons=%s, quantity=%s, price=%s WHERE order_id=%s
-                        """, (selected_size, add_ons_str, quantity, total_price, order_id))
+                            UPDATE orders 
+                            SET size=%s, add_ons=%s, quantity=%s, price=%s 
+                            WHERE order_id=%s
+                        """, (selected_size, add_ons_str, quantity, base_price * quantity, order_id))  # Use base price * quantity for the price field
                         conn.commit()
                         cursor.close()
                         conn.close()
@@ -2081,6 +2084,7 @@ def show_next_transaction_prompt():
                             bgcolor="#E53935",
                             color="white",
                             padding=ft.padding.symmetric(horizontal=0, vertical=14),
+                           
                             shape=ft.RoundedRectangleBorder(radius=8),
                         ),
                         width=170,

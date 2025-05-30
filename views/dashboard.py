@@ -52,6 +52,107 @@ def dashboard_view(page: ft.Page):
     day_str = today.strftime('%A')
     date_str = today.strftime('%d %B %Y')
 
+    # Fetch dynamic data
+    def fetch_dashboard_data():
+        try:
+            conn = get_db_connection()
+            if conn and conn.is_connected():
+                cursor = conn.cursor()
+
+                # Fetch revenue, profit, and total orders for today
+                cursor.execute("""
+                    SELECT 
+                        SUM(price) AS revenue, 
+                        SUM(price * 0.4) AS profit, 
+                        COUNT(*) AS total_orders 
+                    FROM orders 
+                    WHERE DATE(created_at) = CURDATE() AND status = 'Confirmed'
+                """)
+                today_data = cursor.fetchone()
+                revenue_today = today_data[0] or 0
+                profit_today = today_data[1] or 0
+                total_orders_today = today_data[2] or 0
+
+                # Fetch revenue, profit, and total orders for yesterday
+                cursor.execute("""
+                    SELECT 
+                        SUM(price) AS revenue, 
+                        SUM(price * 0.4) AS profit, 
+                        COUNT(*) AS total_orders 
+                    FROM orders 
+                    WHERE DATE(created_at) = CURDATE() - INTERVAL 1 DAY AND status = 'Confirmed'
+                """)
+                yesterday_data = cursor.fetchone()
+                revenue_yesterday = yesterday_data[0] or 0
+                profit_yesterday = yesterday_data[1] or 0
+                total_orders_yesterday = yesterday_data[2] or 0
+
+                # Calculate percentage changes
+                revenue_change = ((revenue_today - revenue_yesterday) / revenue_yesterday * 100) if revenue_yesterday else 0
+                profit_change = ((profit_today - profit_yesterday) / profit_yesterday * 100) if profit_yesterday else 0
+                total_orders_change = ((total_orders_today - total_orders_yesterday) / total_orders_yesterday * 100) if total_orders_yesterday else 0
+
+                # Fetch product with the highest orders
+                cursor.execute("""
+                    SELECT 
+                        product_name, 
+                        COUNT(*) AS orders_count 
+                    FROM orders 
+                    WHERE status = 'Confirmed' 
+                    GROUP BY product_name 
+                    ORDER BY orders_count DESC 
+                    LIMIT 4
+                """)
+                top_products = cursor.fetchall()
+
+                cursor.close()
+                conn.close()
+
+                return {
+                    "revenue_today": revenue_today,
+                    "profit_today": profit_today,
+                    "total_orders_today": total_orders_today,
+                    "revenue_change": revenue_change,
+                    "profit_change": profit_change,
+                    "total_orders_change": total_orders_change,
+                    "top_products": top_products
+                }
+        except Exception as e:
+            print(f"Error fetching dashboard data: {e}")
+            return {
+                "revenue_today": 0,
+                "profit_today": 0,
+                "total_orders_today": 0,
+                "revenue_change": 0,
+                "profit_change": 0,
+                "total_orders_change": 0,
+                "top_products": []
+            }
+
+    dashboard_data = fetch_dashboard_data()
+
+    def product_table(products):
+        rows = [
+            ft.Row([
+                ft.Container(ft.Text("Name", weight="bold", size=14), width=140, alignment=ft.alignment.center_left),
+                ft.Container(ft.Text("Orders", weight="bold", size=14), width=80, alignment=ft.alignment.center),
+            ], spacing=10, alignment="center")
+        ]
+        for product in products:
+            rows.append(
+                ft.Row([
+                    ft.Container(
+                        ft.Text(product[0], size=14, font_family="Poppins"),
+                        width=140, alignment=ft.alignment.center_left
+                    ),
+                    ft.Container(
+                        ft.Text(str(product[1]), size=14, font_family="Poppins"),
+                        width=80, alignment=ft.alignment.center
+                    ),
+                ], spacing=10, alignment="center")
+            )
+        return rows
+
     # Fetch logged-in user's name
     def get_logged_in_user():
         try:
@@ -252,6 +353,23 @@ def dashboard_view(page: ft.Page):
     # Get top beverages from database
     top_beverages = get_top_beverages()
 
+    # Fetch logged-in user's first name
+    def get_logged_in_user_first_name():
+        try:
+            conn = get_db_connection()
+            if conn and conn.is_connected():
+                cursor = conn.cursor()
+                cursor.execute("SELECT first_name FROM employees WHERE id = %s", (page.session.get("user_id"),))
+                user = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                return user[0] if user else "User"
+        except Exception as e:
+            print(f"Error fetching user first name: {e}")
+            return "User"
+
+    first_name = get_logged_in_user_first_name()
+
     # Main layout
     return ft.Container(
         content=ft.Column(
@@ -287,9 +405,9 @@ def dashboard_view(page: ft.Page):
                                         icon=ft.Icons.PAID,
                                         icon_color=ft.Colors.GREEN_700,
                                         title="Total Revenue",
-                                        value="₱3,865.00",
-                                        change="▲ 5.78%",
-                                        change_color=ft.Colors.GREEN_700,
+                                        value=f"₱{dashboard_data['revenue_today']:.2f}",
+                                        change=f"▲ {dashboard_data['revenue_change']:.2f}%",
+                                        change_color=ft.Colors.GREEN_700 if dashboard_data['revenue_change'] >= 0 else ft.Colors.RED_700,
                                         change_text="vs yesterday",
                                         subtext=""
                                     ),
@@ -297,19 +415,19 @@ def dashboard_view(page: ft.Page):
                                         icon=ft.Icons.ATTACH_MONEY,
                                         icon_color=ft.Colors.BLUE_700,
                                         title="Total Profit",
-                                        value="₱1,546.00",
-                                        change="▲ 2.2%",
-                                        change_color=ft.Colors.GREEN_700,
+                                        value=f"₱{dashboard_data['profit_today']:.2f}",
+                                        change=f"▲ {dashboard_data['profit_change']:.2f}%",
+                                        change_color=ft.Colors.GREEN_700 if dashboard_data['profit_change'] >= 0 else ft.Colors.RED_700,
                                         change_text="vs yesterday",
                                         subtext=""
                                     ),
                                     SummaryStatBox(
                                         icon=ft.Icons.SHOPPING_BAG,
                                         icon_color=ft.Colors.ORANGE_700,
-                                        title="Total Order",
-                                        value="97",
-                                        change="▲ 20%",
-                                        change_color=ft.Colors.GREEN_700,
+                                        title="Total Orders",
+                                        value=str(dashboard_data['total_orders_today']),
+                                        change=f"▲ {dashboard_data['total_orders_change']:.2f}%",
+                                        change_color=ft.Colors.GREEN_700 if dashboard_data['total_orders_change'] >= 0 else ft.Colors.RED_700,
                                         change_text="vs yesterday",
                                         subtext=""
                                     ),
@@ -328,70 +446,6 @@ def dashboard_view(page: ft.Page):
                 ft.Row(
                     controls=[
                         ft.Container(
-                            bgcolor="white",
-                            border_radius=12,
-                            padding=16,
-                            expand=True,
-                            width=600,
-                            height=600,
-                            shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK)),
-                            content=ft.Column(
-                                controls=[
-                                    ft.Text("Top Products", weight="bold", size=18, font_family="Poppins"),
-                                    ft.Text("Most stocked items in inventory", size=12, color=ft.Colors.GREY_700),
-                                    ft.Container(
-                                        content=ft.Column(
-                                            controls=[
-                                                # Table header
-                                                ft.Row([
-                                                    ft.Container(ft.Text("Image", weight="bold", size=14), width=60, alignment=ft.alignment.center),
-                                                    ft.Container(ft.Text("Name", weight="bold", size=14), width=140, alignment=ft.alignment.center_left),
-                                                    ft.Container(ft.Text("Price", weight="bold", size=14), width=80, alignment=ft.alignment.center),
-                                                    ft.Container(ft.Text("Availability", weight="bold", size=14), width=120, alignment=ft.alignment.center),
-                                                ], spacing=10, alignment="center"),
-                                                ft.Divider(height=1, thickness=1, color=ft.Colors.GREY_200),
-                                                # Table rows
-                                                *[
-                                                    ft.Row([
-                                                        ft.Container(
-                                                            ft.Image(
-                                                                src=product[5] if product[5] else "icons/default_product.png",
-                                                                width=40, height=40, fit=ft.ImageFit.CONTAIN,
-                                                                error_content=ft.Icon(ft.Icons.ERROR, color=ft.Colors.GREY)
-                                                            ),
-                                                            width=60, alignment=ft.alignment.center
-                                                        ),
-                                                        ft.Container(
-                                                            ft.Text(product[1], size=14, font_family="Poppins"),
-                                                            width=140, alignment=ft.alignment.center_left
-                                                        ),
-                                                        ft.Container(
-                                                            ft.Text(f"₱{product[3]:.2f}", size=14, font_family="Poppins"),
-                                                            width=80, alignment=ft.alignment.center
-                                                        ),
-                                                        ft.Container(
-                                                            ft.Text(str(product[4]), size=14, font_family="Poppins"),
-                                                            width=120, alignment=ft.alignment.center
-                                                        ),
-                                                    ], spacing=10, alignment="center")
-                                                    for product in top_beverages
-                                                ]
-                                            ],
-                                            spacing=8
-                                        ),
-                                        bgcolor=ft.Colors.GREY_100,
-                                        border_radius=8,
-                                        padding=10,
-                                        margin=ft.margin.only(top=10, bottom=10)
-                                    ),
-                                    ft.Divider(),
-                                    ft.Text("Did you know? Our best-selling product is Matcha!", size=12, color=ft.Colors.GREY_700, italic=True),
-                                    ft.Image(src="icons/beans.png", width=40, height=40),
-                                ],
-                                spacing=8
-                            )
-                        ),
-                        ft.Container(
                             content=ft.Column(
                                 controls=[
                                     ft.Container(
@@ -399,7 +453,7 @@ def dashboard_view(page: ft.Page):
                                             controls=[
                                                 ft.Column(
                                                     controls=[
-                                                        ft.Text("Hi, Michael", weight="bold", size=18, font_family="Poppins"),
+                                                        ft.Text(f"Hi, {first_name}", weight="bold", size=18, font_family="Poppins"),
                                                         ft.Text(
                                                             "Ready to kick off your day of serving\ngreat coffee?",
                                                             size=12,
@@ -440,6 +494,7 @@ def dashboard_view(page: ft.Page):
                                         margin=ft.margin.only(bottom=10),
                                         shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK)),
                                         width=450,
+                                        height=250  # Reduced height from 300 to 250
                                     ),
                                     ft.Container(
                                         content=ft.Text(
@@ -457,9 +512,34 @@ def dashboard_view(page: ft.Page):
                                 ]
                             ),
                             expand=True,
-                            width=480,
-                            height=600,
-                            margin=ft.margin.only(left=20)
+                            width=450,
+                            height=250,  # Adjusted height to match the container
+                            margin=ft.margin.only(right=20)
+                        ),
+                        ft.Container(
+                            bgcolor="white",
+                            border_radius=12,
+                            padding=16,
+                            width=700,
+                            height=300,
+                            shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK)),
+                            content=ft.Column(
+                                controls=[
+                                    ft.Text("Top Products", weight="bold", size=18, font_family="Poppins"),
+                                    ft.Text("Most ordered items", size=12, color=ft.Colors.GREY_700),
+                                    ft.Container(
+                                        content=ft.Column(
+                                            controls=product_table(dashboard_data['top_products']),
+                                            spacing=8
+                                        ),
+                                        bgcolor=ft.Colors.GREY_100,
+                                        border_radius=8,
+                                        padding=10,
+                                        margin=ft.margin.only(top=10, bottom=10)
+                                    ),
+                                ],
+                                spacing=20  # Adjust spacing for better alignment
+                            )
                         )
                     ],
                     spacing=20

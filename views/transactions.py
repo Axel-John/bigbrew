@@ -384,7 +384,7 @@ def transactions_view(page: ft.Page):
                 ),
             ]),
             width=300,
-            height=250,
+            height=200,
             bgcolor="#F5F5F5",
             border_radius=10,
             padding=10,
@@ -418,7 +418,7 @@ def transactions_view(page: ft.Page):
             run_spacing=20,  # Space between rows
             expand=True
         ),
-        height=500,
+        height=600,  # Increased height for better visibility
         bgcolor="white",
         border_radius=10,
         padding=10
