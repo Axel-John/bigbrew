@@ -4,6 +4,7 @@ from flet import (
 )
 from config.database import get_db_connection, insert_order, fetch_pending_orders
 from utils.password import hash_password
+import datetime
 
 selected_index = 0
 selected_payment_method = None  # No default selection
@@ -16,7 +17,13 @@ gcash_btn_ref = ft.Ref[ft.ElevatedButton]()
 void_modal_width = 320
 void_modal_height = 180  # You can adjust this value as needed
 
-def main(page: Page):
+# Define page globally at the top of the file
+page = None  # Placeholder for the Page object, will be set in main()
+
+def main(page_obj: Page):
+    global page
+    page = page_obj  # Set the global page object
+
     global selected_index, selected_payment_method
     selected_index = 0
     page.title = "ORDER WINDOW"
@@ -655,6 +662,7 @@ def main(page: Page):
                                     shape=ft.RoundedRectangleBorder(radius=12),
                                 ),
                                 width=180,
+                                on_click=lambda e: confirm_order(),  # Call confirm_order on click
                             ),
                         ],
                         spacing=10,
@@ -1131,3 +1139,186 @@ def main(page: Page):
             ),
         ], expand=True)
     )
+
+def confirm_order():
+    orders = fetch_pending_orders()
+    if not orders:
+        print("No orders to confirm.")
+        return
+
+    total_items = sum(order[4] for order in orders)  # quantity
+    subtotal = sum(order[5] for order in orders)  # price
+    add_ons_total = sum(len(order[3].split(", ")) * 9 if order[3] else 0 for order in orders)
+    grand_total = subtotal + add_ons_total
+
+    try:
+        conn = get_db_connection()
+        if conn and conn.is_connected():
+            cursor = conn.cursor()
+
+            # Generate a unique order number and order code
+            cursor.execute("SELECT MAX(order_number) FROM transactions")
+            max_order_number = cursor.fetchone()[0]
+            order_number = (max_order_number + 1) if max_order_number else 1
+            order_code = f"BBR{order_number:04d}"
+
+            # Save transaction details
+            cursor.execute("""
+                INSERT INTO transactions (order_number, order_code, payment_method, total_amount, status)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (order_number, order_code, selected_payment_method or "Cash", grand_total, "Normal"))
+
+            # Update orders to mark them as confirmed
+            for order in orders:
+                cursor.execute("""
+                    UPDATE orders
+                    SET status = 'Confirmed'
+                    WHERE order_id = %s
+                """, (order[0],))
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            print(f"Order confirmed with Order Code: {order_code}")
+
+            # Generate receipt layout
+            from datetime import datetime
+            now = datetime.now()
+            date_str = now.strftime('%d-%m-%Y')
+            time_str = now.strftime('%I:%M %p')
+
+            receipt_container = ft.Container(
+                alignment=ft.alignment.center,  # Center the receipt modal
+                content=ft.Column(
+                    controls=[
+                        # Logo and Header
+                        ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    ft.Image(src="assets/logos/bigbrew_logo_black.png", width=50, height=50),
+                                    ft.Text("BIGBREW", size=20, weight="bold", text_align="center"),
+                                    ft.Text("San Jose, Jaro, Iloilo City\n5000 Iloilo, Iloilo City\n0919 718 9473",
+                                            size=12, text_align="center", color="black"),
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=5,
+                            ),
+                            padding=ft.padding.only(bottom=10),
+                        ),
+                        ft.Divider(height=1, thickness=1, color="black"),
+                        # Date, Time, and Order Info
+                        ft.Row(
+                            controls=[
+                                ft.Text(f"{date_str}\nTime: {time_str}", size=12, color="black"),
+                                ft.Text(f"Order Number: {order_number}\nOrder Code: {order_code}", size=12, color="black"),
+                            ],
+                            alignment="spaceBetween",
+                        ),
+                        ft.Divider(height=1, thickness=1, color="black"),
+                        # Items Section
+                        ft.Row(
+                            controls=[
+                                ft.Text("Name", size=12, weight="bold"),
+                                ft.Text("Size", size=12, weight="bold"),
+                                ft.Text("Qty", size=12, weight="bold"),
+                                ft.Text("Price", size=12, weight="bold"),
+                            ],
+                            alignment="spaceBetween",
+                        ),
+                        *[
+                            ft.Row(
+                                controls=[
+                                    ft.Text(order[1], size=12),  # Product name
+                                    ft.Text(order[2], size=12),  # Size
+                                    ft.Text(str(order[4]), size=12),  # Quantity
+                                    ft.Text(f"₱{order[5]:.2f}", size=12),  # Price
+                                ],
+                                alignment="spaceBetween",
+                            )
+                            for order in orders
+                        ],
+                        ft.Divider(height=1, thickness=1, color="black"),
+                        # Add-ons Section
+                        ft.Row(
+                            controls=[
+                                ft.Text("Add-ons", size=12, weight="bold"),
+                                ft.Text("Price", size=12, weight="bold"),
+                            ],
+                            alignment="spaceBetween",
+                        ),
+                        *[
+                            ft.Row(
+                                controls=[
+                                    ft.Text(add_on, size=12),
+                                    ft.Text("₱9.00", size=12),
+                                ],
+                                alignment="spaceBetween",
+                            )
+                            for order in orders if order[3]
+                            for add_on in order[3].split(", ")
+                        ],
+                        ft.Divider(height=1, thickness=1, color="black"),
+                        # Price Summary
+                        ft.Row(
+                            controls=[
+                                ft.Text("Price", size=12, weight="bold"),
+                                ft.Text(f"₱{grand_total:.2f}", size=12, weight="bold"),
+                            ],
+                            alignment="spaceBetween",
+                        ),
+                        ft.Divider(height=1, thickness=1, color="black"),
+                        # Footer
+                        ft.Text("Thank You!", size=14, weight="bold", text_align="center"),
+                        ft.Text("Michael Escosa", size=12, text_align="center"),
+                    ],
+                    spacing=10,
+                    expand=True,  # Make the ListView scrollable
+                ),
+                width=350,
+                height=600,
+                bgcolor="white",
+                border_radius=10,
+                padding=ft.padding.all(20),
+                shadow=ft.BoxShadow(
+                    spread_radius=1,
+                    blur_radius=15,
+                    color=ft.Colors.with_opacity(0.2, ft.Colors.BLACK),
+                    offset=ft.Offset(0, 3),
+                ),
+            )
+
+            # Close button
+            close_button = ft.ElevatedButton(
+                "Close",
+                style=ft.ButtonStyle(
+                    bgcolor="#BB6F19",
+                    color="white",
+                    padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+                on_click=lambda e: close_receipt_modal(page)
+            )
+
+            # Display receipt preview
+            receipt_modal = ft.Container(
+                visible=True,
+                alignment=ft.alignment.center,  # Ensure the modal is centered
+                bgcolor=ft.Colors.with_opacity(0.5, ft.Colors.BLACK),
+                expand=True,
+                content=receipt_container
+            )
+            page.overlay.append(receipt_modal)
+            page.update()
+
+            # Refresh the transactions table
+            from views.transactions import transactions_view
+            transactions_view(page)
+        else:
+            print("Error: Unable to connect to the database.")
+    except Exception as e:
+        print(f"Error confirming order: {str(e)}")
+
+def close_receipt_modal(page):
+    page.overlay.clear()  # Clear all elements from the overlay
+    page.update()  # Update the page to reflect changes

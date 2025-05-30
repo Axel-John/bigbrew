@@ -1,0 +1,21 @@
+BIGBREW
+San Jose, Jaro, Iloilo City
+5000 Iloilo, Iloilo City
+0919 718 9473
+30-05-2025 Time: 02:03 AM
+Order Number: 16
+Order Code: BBR0016
+--------------------------------
+Name	Size	Qty	Price
+Okinawa	Grande	3	₱141.00
+--------------------------------
+Add-ons	Price
+Pearl	₱9.00
+Crushed Oreo	₱9.00
+Crystal	₱9.00
+Cream Cheese	₱9.00
+--------------------------------
+Price	₱177.00
+--------------------------------
+Thank You!
+Michael Escosa

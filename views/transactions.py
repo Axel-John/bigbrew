@@ -142,49 +142,67 @@ def transactions_view(page: ft.Page):
         spacing=20
     )
 
-    # Transactions Table
-    transactions_table = ft.Container(
-        content=ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Date", weight="bold")),
-                ft.DataColumn(ft.Text("Order ID", weight="bold")),
-                ft.DataColumn(ft.Text("Product", weight="bold")),
-                ft.DataColumn(ft.Text("Qty", weight="bold")),
-                ft.DataColumn(ft.Text("Add-Ons", weight="bold")),
-                ft.DataColumn(ft.Text("Payment Method", weight="bold")),
-                ft.DataColumn(ft.Text("Amount", weight="bold")),
-                ft.DataColumn(ft.Text("Total", weight="bold")),
-            ],
-            rows=[
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text("11/05/2025")),
-                        ft.DataCell(ft.Text("#34")),
-                        ft.DataCell(ft.Text("Okinawa\nWintermelon\nMatcha")),
-                        ft.DataCell(ft.Text("1\n1\n1")),
-                        ft.DataCell(ft.Text("-\n-\n-")),
-                        ft.DataCell(ft.Text("Cash")),
-                        ft.DataCell(ft.Text("₱45\n₱45\n₱45")),
-                        ft.DataCell(ft.Text("₱135")),
-                    ]
-                ),
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text("11/05/2025")),
-                        ft.DataCell(ft.Text("#36")),
-                        ft.DataCell(ft.Text("Okinawa")),
-                        ft.DataCell(ft.Text("1")),
-                        ft.DataCell(ft.Text("-")),
-                        ft.DataCell(ft.Text("Cash")),
-                        ft.DataCell(ft.Text("₱45")),
-                        ft.DataCell(ft.Text("₱45")),
-                    ]
-                ),
-                # Add more rows as needed
-            ]
+    # Fetch transactions from the database
+    def fetch_transactions():
+        try:
+            conn = get_db_connection()
+            if conn and conn.is_connected():
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT t.transaction_id, t.created_at, t.order_code, t.total_amount,
+                           GROUP_CONCAT(CONCAT(o.product_name, ' x', o.quantity, ' (₱', o.price, ')', 
+                           IF(o.add_ons IS NOT NULL AND o.add_ons != '', CONCAT(' - Add-Ons: ', o.add_ons), '')) SEPARATOR '\n') AS orders
+                    FROM transactions t
+                    LEFT JOIN orders o ON t.order_number = o.order_id
+                    GROUP BY t.transaction_id
+                    ORDER BY t.created_at DESC
+                """)
+                transactions = cursor.fetchall()
+                cursor.close()
+                conn.close()
+                return transactions
+            else:
+                print("Error: Unable to connect to the database.")
+                return []
+        except Exception as e:
+            print(f"Error fetching transactions: {str(e)}")
+            return []
+
+    transactions = fetch_transactions()
+
+    # Create transaction cards
+    transaction_cards = [
+        ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text(f"Transaction ID: {transaction[2]}", weight="bold", size=16),
+                    ft.Text(f"Date: {transaction[1].strftime('%d/%m/%Y')}", size=14),
+                    ft.Text(f"Total: ₱{transaction[3]:.2f}", size=14),
+                    ft.Divider(height=1, thickness=1, color="#BB6F19"),
+                    ft.Text("Orders:", weight="bold", size=14),
+                    ft.Text(transaction[4], size=12, color="black"),
+                ],
+                spacing=5
+            ),
+            width=300,
+            height=250,
+            bgcolor="#F5F5F5",
+            border_radius=10,
+            padding=10,
+            shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.1, "black")),
+        ) for transaction in transactions
+    ]
+
+    # GridView to display transaction cards
+    transactions_container = ft.Container(
+        content=ft.GridView(
+            controls=transaction_cards,
+            max_extent=320,  # Width of each grid item
+            spacing=20,  # Space between grid items
+            run_spacing=20,  # Space between rows
+            expand=True
         ),
-        height=600,
-        width=1300,
+        height=500,
         bgcolor="white",
         border_radius=10,
         padding=10
@@ -301,14 +319,14 @@ def transactions_view(page: ft.Page):
                             ],
                             expand=True
                         ),
-                        user_profile_card()
+                        user_profile_card()  # Replace with the user_profile_card function
                     ],
                     alignment="spaceBetween",
                     vertical_alignment="center"
                 ),
                 ft.Divider(height=2, thickness=1, color="#BB6F19"),
                 search_filter_row,
-                transactions_table
+                transactions_container
             ],
             spacing=20
         ),

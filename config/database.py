@@ -108,6 +108,26 @@ def init_db():
             )
         """)
 
+        # Create transactions table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                transaction_id INT AUTO_INCREMENT PRIMARY KEY,
+                order_number INT NOT NULL,
+                order_code VARCHAR(20) NOT NULL,
+                payment_method VARCHAR(50) NOT NULL,
+                total_amount DECIMAL(10,2) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'Normal',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Alter transactions table to add order_number and order_code columns if they don't exist
+        cursor.execute("""
+            ALTER TABLE transactions
+            ADD COLUMN IF NOT EXISTS order_number INT NOT NULL,
+            ADD COLUMN IF NOT EXISTS order_code VARCHAR(20) NOT NULL
+        """)
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -145,17 +165,40 @@ def insert_order(product_name, size, add_ons, quantity, price):
     conn = get_db_connection()
     if conn and conn.is_connected():
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO orders (product_name, size, add_ons, quantity, price, status)
-            VALUES (%s, %s, %s, %s, %s, 'Pending')
-            """,
-            (product_name, size, add_ons, quantity, price)
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
+        try:
+            # Insert into orders table
+            cursor.execute(
+                """
+                INSERT INTO orders (product_name, size, add_ons, quantity, price, status)
+                VALUES (%s, %s, %s, %s, %s, 'Pending')
+                """,
+                (product_name, size, add_ons, quantity, price)
+            )
+            order_id = cursor.lastrowid  # Get the last inserted order ID
+
+            # Generate transaction ID in the format BBT0001
+            cursor.execute("SELECT MAX(transaction_id) FROM transactions")
+            max_transaction_id = cursor.fetchone()[0]
+            next_transaction_id = (max_transaction_id + 1) if max_transaction_id else 1
+            transaction_code = f"BBT{next_transaction_id:04d}"  # Format as BBT0001, BBT0002, etc.
+
+            # Insert into transactions table
+            cursor.execute(
+                """
+                INSERT INTO transactions (order_number, order_code, payment_method, total_amount, status)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (order_id, transaction_code, "Pending", price * quantity, "Normal")
+            )
+
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error inserting order: {str(e)}")
+            return False
+        finally:
+            cursor.close()
+            conn.close()
     return False
 
 def fetch_pending_orders():

@@ -22,7 +22,13 @@ def get_admin_full_name():
 
 admin_full_name = get_admin_full_name()
 
-def products_view(page: ft.Page):
+# Define page globally at the top of the file
+page = None  # Placeholder for the Page object, will be set in products_view()
+
+def products_view(page_obj: ft.Page):
+    global page
+    page = page_obj  # Set the global page object
+
     # Initialize product_id_to_edit in the outer scope
     product_id_to_edit = None
 
@@ -240,7 +246,7 @@ def products_view(page: ft.Page):
                         float(add_price_field.value),
                         add_availability_dropdown.value,
                         relative_path  # Store the relative path
-                    ),
+                    )
                 )
                 conn.commit()
                 cursor.close()
@@ -282,8 +288,8 @@ def products_view(page: ft.Page):
                                     shape=ft.RoundedRectangleBorder(radius=8),
                                 ),
                                 on_click=lambda e: close_success_and_form()
-                            ),
-                        ],
+                            )
+                        ]
                     ),
                     padding=20,
                     bgcolor=ft.Colors.WHITE,
@@ -294,8 +300,8 @@ def products_view(page: ft.Page):
                         spread_radius=1,
                         blur_radius=15,
                         color=ft.Colors.with_opacity(0.2, ft.Colors.BLACK),
-                        offset=ft.Offset(0, 3),
-                    ),
+                        offset=ft.Offset(0, 3)
+                    )
                 )
 
                 # Create success modal
@@ -1126,7 +1132,7 @@ def products_view(page: ft.Page):
 
     def save_edited_product(e):
         nonlocal product_id_to_edit
-        
+
         # Validate required fields
         if not all([edit_name_field.value, edit_type_dropdown.value, edit_price_field.value, edit_availability_dropdown.value]):
             error_text.value = "Please fill in all fields."
@@ -1224,8 +1230,8 @@ def products_view(page: ft.Page):
                                     shape=ft.RoundedRectangleBorder(radius=8),
                                 ),
                                 on_click=lambda e: close_success_and_edit_form()
-                            ),
-                        ],
+                            )
+                        ]
                     ),
                     padding=20,
                     bgcolor=ft.Colors.WHITE,
@@ -1236,8 +1242,8 @@ def products_view(page: ft.Page):
                         spread_radius=1,
                         blur_radius=15,
                         color=ft.Colors.with_opacity(0.2, ft.Colors.BLACK),
-                        offset=ft.Offset(0, 3),
-                    ),
+                        offset=ft.Offset(0, 3)
+                    )
                 )
 
                 # Create success modal

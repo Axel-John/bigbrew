@@ -16,8 +16,8 @@ def main(page: Page):
     page.window_height = 700
     page.expand = True  # Ensure the page itself expands to fill the screen
     page.fonts = {
-        "Poppins": "https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/Poppins-Regular.ttf",
-        "Poppins-Bold": "https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/Poppins-Bold.ttf",
+        "Poppins": "assets/fonts/Poppins-Regular.ttf",
+        "Poppins-Bold": "assets/fonts/Poppins-Bold.ttf",
     }
     page.route = "/login"  # Set the current route
 
@@ -152,10 +152,11 @@ def main(page: Page):
             def go_to_order_window():
                 page.clean()
                 from views.order_window import main as order_window_main
-                order_window_main(page)
+                order_window_main(page)  # Redirect to the order window
                 page.update()
+
             import threading
-            threading.Timer(1.0, go_to_order_window).start()
+            threading.Timer(1.0, go_to_order_window).start()  # Redirect after a short delay
 
         except Exception as e:
             error_text.value = f"Error during login: {str(e)}"
