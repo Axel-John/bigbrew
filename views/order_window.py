@@ -1190,7 +1190,7 @@ def confirm_order():
 
             receipt_container = ft.Container(
                 alignment=ft.alignment.center,  # Center the receipt modal
-                content=ft.Column(
+                content=ft.ListView(
                     controls=[
                         # Logo and Header
                         ft.Container(
@@ -1207,11 +1207,12 @@ def confirm_order():
                             padding=ft.padding.only(bottom=10),
                         ),
                         ft.Divider(height=1, thickness=1, color="black"),
-                        # Date, Time, and Order Info
+                        # Date, Time, Order Info, and Payment Method
                         ft.Row(
                             controls=[
                                 ft.Text(f"{date_str}\nTime: {time_str}", size=12, color="black"),
                                 ft.Text(f"Order Number: {order_number}\nOrder Code: {order_code}", size=12, color="black"),
+                                ft.Text(f"Payment Method: {selected_payment_method}", size=12, color="black"),  # Display payment method
                             ],
                             alignment="spaceBetween",
                         ),
