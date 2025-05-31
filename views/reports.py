@@ -8,7 +8,8 @@ chart_cache = {}
 
 class ReportState:
     def __init__(self):
-        self.filter = "today"
+        self.filter = "today"  # Default timeline set to "today"
+
 state = ReportState()
 
 def get_admin_full_name():
@@ -290,9 +291,10 @@ def filter_button(label, filter_type, selected, on_click):
     return ft.ElevatedButton(
         label,
         style=ft.ButtonStyle(
-            bgcolor="#BB6F19" if selected else "#F5E9DA",
-            color="white" if selected else "#BB6F19",
+            bgcolor="#BB6F19" if selected else "#FFFFFF",  # Brown when selected, white otherwise
+            color="white" if selected else "#BB6F19",  # Text color changes based on selection
             shape=ft.RoundedRectangleBorder(radius=8),
+            side=ft.BorderSide(2, "#BB6F19"),  # Add border
         ),
         on_click=lambda e: on_click(filter_type),
         disabled=False,
@@ -438,8 +440,29 @@ def reports_view(page: ft.Page):
     values = [stat[1] for stat in product_stats]      # Quantities
     colors = ['#BB6F19', '#F5E9DA', '#D4A76A', '#8B4513', '#D2691E', '#CD853F']  # Added more colors for variety
 
-    # Initialize charts
+    # Initialize charts with the default timeline
     bar_chart, sales_trend_chart = build_line_and_bar_charts(page, state.filter)
+    update_donut_chart(state.filter)  # Ensure the donut chart is initialized with "today"
+
+    # --- LEGENDS ---
+    def create_legend_item(color, label, value):
+        return ft.Row(
+            controls=[
+                ft.Container(width=16, height=8, bgcolor=color, border_radius=4),
+                ft.Text(label, size=12, weight=ft.FontWeight.BOLD),
+                ft.Text(f"({value})", size=12, color="grey"),
+            ],
+            spacing=6,
+            alignment="start",
+        )
+
+    legends = ft.Column(
+        controls=[
+            create_legend_item(colors[i % len(colors)], categories[i], values[i]) for i in range(len(categories))
+        ],
+        spacing=6,
+        alignment="start",
+    )
 
     # --- DONUT CHART (Interactive Pie Chart) ---
     normal_radius = 50
@@ -486,16 +509,86 @@ def reports_view(page: ft.Page):
         padding=20,
         width=350,
         height=250,
-        content=ft.Column([
-            ft.Text("Revenue by Category", size=16, color="#BB6F19", weight="bold"),
-            chart,
+        content=ft.Row([
+            ft.Column(
+                controls=[
+                    ft.Text("Revenue by Category", size=16, color="#BB6F19", weight="bold"),
+                    chart,
+                ],
+                spacing=10,
+                expand=True,
+            ),
+            legends,  # Added legends to the right side of the donut chart
         ], spacing=10),
     )
 
+    def update_donut_chart(filter_type):
+        # Fetch data dynamically based on the filter type
+        if filter_type == "today":
+            start_date = datetime.date.today()
+            end_date = start_date + datetime.timedelta(days=1)
+        elif filter_type == "week":
+            start_date = datetime.date.today() - datetime.timedelta(days=6)
+            end_date = datetime.date.today() + datetime.timedelta(days=1)
+        elif filter_type == "month":
+            start_date = datetime.date.today().replace(day=1)
+            end_date = (start_date.replace(month=start_date.month % 12 + 1, day=1) - datetime.timedelta(days=1)).replace(day=start_date.day)
+        else:
+            start_date = datetime.date.today()
+            end_date = start_date + datetime.timedelta(days=1)
+
+        conn = get_db_connection()
+        if conn and conn.is_connected():
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT p.type, COALESCE(SUM(o.quantity), 0) as total_quantity
+                    FROM products p
+                    LEFT JOIN orders o ON p.name = o.product_name
+                    WHERE o.created_at >= %s AND o.created_at < %s AND o.status != 'Pending'
+                    GROUP BY p.type
+                    ORDER BY total_quantity DESC
+                """, (start_date, end_date))
+                results = cursor.fetchall()
+                categories = [stat[0] for stat in results]
+                values = [stat[1] for stat in results]
+
+                # Handle case where there are no orders
+                if not values or sum(values) == 0:
+                    categories = ["No Orders"]
+                    values = [0]
+
+                total = sum(values) if values else 1  # Prevent division by zero
+                pie_sections = [
+                    ft.PieChartSection(
+                        values[i],
+                        title=f"{int(values[i] / total * 100)}%" if total > 0 else "0%",
+                        title_style=normal_title_style,
+                        color=colors[i % len(colors)],
+                        radius=normal_radius,
+                    ) for i in range(len(categories))
+                ]
+                legends.controls = [
+                    create_legend_item(colors[i % len(colors)], categories[i], values[i]) for i in range(len(categories))
+                ]
+                chart.sections = pie_sections
+                chart.update()
+            except Exception as e:
+                print(f"Error updating donut chart: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+
     # --- FILTER CONTROLS ---
     def update_charts(filter_type):
-        state.filter = filter_type
+        state.filter = filter_type  # Update the filter state
         bar_chart, sales_trend_chart = build_line_and_bar_charts(page, filter_type)
+        update_donut_chart(filter_type)  # Update the donut chart dynamically
+        filter_toggle_row.controls = [
+            filter_button("Today", "today", state.filter == "today", update_charts),
+            filter_button("Week", "week", state.filter == "week", update_charts),
+            filter_button("Month", "month", state.filter == "month", update_charts),
+        ]  # Re-render buttons with updated state
         right_charts_column.controls[0] = bar_chart
         right_charts_column.controls[1] = charts_row
         charts_row.controls[0] = sales_trend_chart
@@ -525,34 +618,146 @@ def reports_view(page: ft.Page):
     ], spacing=8)
 
     # --- METRIC CARDS ---
-    def metric_card(title, value, subtext, icon, icon_color, subtext_color):
+    def metric_card(title, value, change, change_color, subtext, icon, icon_color):
         return ft.Container(
-            bgcolor="white",
-            border_radius=16,
-            shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.10, ft.Colors.BLACK)),
-            padding=16,
-            margin=ft.margin.only(bottom=18),
             content=ft.Column([
+                # Title row at the top
                 ft.Row([
-                    ft.Text(title, size=15, weight="bold", color="#BB6F19"),
-                    ft.Icon(icon, color=icon_color, size=22),
-                ], alignment="spaceBetween"),
-                ft.Container(
-                    content=ft.Text(value, size=26, weight="bold", color="#222", font_family="Poppins"),
-                    margin=ft.margin.only(top=8, bottom=2),
-                ),
-                ft.Row([
-                    ft.Icon(ft.Icons.ARROW_UPWARD, color=subtext_color, size=16),
-                    ft.Text(subtext, size=13, color=subtext_color, weight="bold"),
-                ], spacing=4),
-            ], spacing=4),
-            width=260,
+                    ft.CircleAvatar(
+                        content=ft.Icon(icon, color=icon_color, size=24),
+                        bgcolor=ft.Colors.WHITE,
+                        radius=20
+                    ),
+                    ft.Text(title, weight="bold", size=20, font_family="Poppins"),
+                ], spacing=8, alignment="center", vertical_alignment="center"),
+                
+                # Spacer to push amount to center
+                ft.Container(height=20),
+                
+                # Amount in the center
+                ft.Text(value, size=36, weight="bold", font_family="Poppins", text_align="center"),
+                
+                # Spacer to push percentage to bottom
+                ft.Container(height=20),
+                
+                # Percentage and text at the bottom
+                ft.Column([
+                    ft.Container(
+                        content=ft.Text(change, size=14, color=change_color, weight="bold"),
+                        bgcolor=ft.Colors.GREEN_100 if change_color == ft.Colors.GREEN_700 else ft.Colors.RED_100,
+                        border_radius=8,
+                        padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                        alignment=ft.alignment.center
+                    ),
+                    ft.Text(subtext, size=12, color=ft.Colors.GREY_700),
+                ], alignment="start", spacing=4),
+            ], alignment="center", spacing=2, horizontal_alignment="center"),
+            padding=16,
+            bgcolor=ft.Colors.WHITE,
+            border_radius=16,
+            border=ft.border.all(1, ft.Colors.BLACK),
+            shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK)),
+            expand=True,
+            height=230,
+            width=300
         )
-    metrics_column = ft.Column([
-        metric_card("Total Revenue", "₱3,865.00", "57.76% from last period", ft.Icons.CHECK_CIRCLE, "#22C55E", "#22C55E"),
-        metric_card("Total Profit", "₱1,546.00", "2.2% from last period", ft.Icons.TRENDING_UP, "#3B82F6", "#3B82F6"),
-        metric_card("Total Order", "97", "20% from last period", ft.Icons.SHOPPING_BAG, "#F59E42", "#F59E42"),
-    ], spacing=0)
+
+    def fetch_report_metrics():
+        try:
+            conn = get_db_connection()
+            if conn and conn.is_connected():
+                cursor = conn.cursor()
+
+                # Fetch revenue, profit, and total orders for today
+                cursor.execute("""
+                    SELECT 
+                        SUM(price * quantity) AS revenue, 
+                        SUM(price * quantity * 0.4) AS profit, 
+                        COUNT(*) AS total_orders 
+                    FROM orders 
+                    WHERE DATE(created_at) = CURDATE() AND status = 'Confirmed'
+                """)
+                today_data = cursor.fetchone()
+                revenue_today = today_data[0] or 0
+                profit_today = today_data[1] or 0
+                total_orders_today = today_data[2] or 0
+
+                # Fetch revenue, profit, and total orders for yesterday
+                cursor.execute("""
+                    SELECT 
+                        SUM(price * quantity) AS revenue, 
+                        SUM(price * quantity * 0.4) AS profit, 
+                        COUNT(*) AS total_orders 
+                    FROM orders 
+                    WHERE DATE(created_at) = CURDATE() - INTERVAL 1 DAY AND status = 'Confirmed'
+                """)
+                yesterday_data = cursor.fetchone()
+                revenue_yesterday = yesterday_data[0] or 0
+                profit_yesterday = yesterday_data[1] or 0
+                total_orders_yesterday = yesterday_data[2] or 0
+
+                # Calculate percentage changes
+                revenue_change = ((revenue_today - revenue_yesterday) / revenue_yesterday * 100) if revenue_yesterday else 0
+                profit_change = ((profit_today - profit_yesterday) / profit_yesterday * 100) if profit_yesterday else 0
+                total_orders_change = ((total_orders_today - total_orders_yesterday) / total_orders_yesterday * 100) if total_orders_yesterday else 0
+
+                cursor.close()
+                conn.close()
+
+                return {
+                    "revenue_today": revenue_today,
+                    "profit_today": profit_today,
+                    "total_orders_today": total_orders_today,
+                    "revenue_change": revenue_change,
+                    "profit_change": profit_change,
+                    "total_orders_change": total_orders_change,
+                }
+        except Exception as e:
+            print(f"Error fetching report metrics: {e}")
+            return {
+                "revenue_today": 0,
+                "profit_today": 0,
+                "total_orders_today": 0,
+                "revenue_change": 0,
+                "profit_change": 0,
+                "total_orders_change": 0,
+            }
+
+    report_metrics = fetch_report_metrics()
+
+    metrics_column = ft.Column(
+        controls=[
+            metric_card(
+                "Total Revenue",
+                f"₱{report_metrics['revenue_today']:.2f}",
+                f"{'▲' if report_metrics['revenue_change'] >= 0 else '▼'} {abs(report_metrics['revenue_change']):.2f}%",
+                ft.Colors.GREEN_700 if report_metrics['revenue_change'] >= 0 else ft.Colors.RED_700,
+                "vs yesterday",
+                ft.Icons.PAID,
+                ft.Colors.GREEN_700
+            ),
+            metric_card(
+                "Total Profit",
+                f"₱{report_metrics['profit_today']:.2f}",
+                f"{'▲' if report_metrics['profit_change'] >= 0 else '▼'} {abs(report_metrics['profit_change']):.2f}%",
+                ft.Colors.GREEN_700 if report_metrics['profit_change'] >= 0 else ft.Colors.RED_700,
+                "vs yesterday",
+                ft.Icons.ATTACH_MONEY,
+                ft.Colors.BLUE_700
+            ),
+            metric_card(
+                "Total Orders",
+                f"{report_metrics['total_orders_today']}",
+                f"{'▲' if report_metrics['total_orders_change'] >= 0 else '▼'} {abs(report_metrics['total_orders_change']):.2f}%",
+                ft.Colors.GREEN_700 if report_metrics['total_orders_change'] >= 0 else ft.Colors.RED_700,
+                "vs yesterday",
+                ft.Icons.SHOPPING_BAG,
+                ft.Colors.ORANGE_700
+            ),
+        ],
+        spacing=20,
+        alignment="center"
+    )
 
     # --- CHARTS ---
     charts_row = ft.Row([
