@@ -1484,7 +1484,7 @@ def products_view(page_obj: ft.Page):
     # User profile card
     def user_profile_card():
         def handle_logout(page):
-            # Create a custom modal dialog for logout confirmation
+            # Create a custom modal dialog for logout confirmation (standardized)
             logout_modal = ft.Container(
                 visible=False,
                 alignment=ft.alignment.center,
@@ -1504,7 +1504,7 @@ def products_view(page_obj: ft.Page):
                             ft.Text("Confirm Logout", size=18, weight="bold"),
                             ft.Text("Are you sure you want to logout?", size=14, color=ft.Colors.GREY),
                             ft.Row(
-                                alignment=ft.MainAxisAlignment.CENTER,  # Center the buttons
+                                alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=10,
                                 controls=[
                                     ft.ElevatedButton(
@@ -1533,26 +1533,23 @@ def products_view(page_obj: ft.Page):
                     ),
                 ),
             )
-
-            # Add the modal to the page overlay
             page.overlay.append(logout_modal)
 
             def confirm_logout():
-                logout_modal.visible = False  # Hide the modal
-                page.overlay.remove(logout_modal)  # Remove the modal from the overlay
-                page.update()  # Update the page to reflect changes
-                page.clean()  # Clear all existing UI elements
-                page.bgcolor = "white"  # Reset the background color to white
+                logout_modal.visible = False
+                page.overlay.remove(logout_modal)
+                page.update()
+                page.clean()
+                page.bgcolor = "white"
                 from views.login import main
-                main(page)  # Redirect to the login window
+                main(page)
                 page.update()
 
             def close_logout_modal():
-                logout_modal.visible = False  # Hide the modal
-                page.overlay.remove(logout_modal)  # Remove the modal from the overlay
-                page.update()  # Update the page to reflect changes
+                logout_modal.visible = False
+                page.overlay.remove(logout_modal)
+                page.update()
 
-            # Show the modal
             logout_modal.visible = True
             page.update()
 

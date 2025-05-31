@@ -81,184 +81,180 @@ def reports_view(page: ft.Page):
     )
 
     def handle_logout(page):
-        # Show confirmation dialog
-        def confirm_logout(e):
-            page.overlay.clear()  # Clear all elements from the overlay
-            page.update()  # Update the page to reflect changes
-            page.clean()  # Clear all existing UI elements
+        # Create a custom modal dialog for logout confirmation (standardized)
+        logout_modal = ft.Container(
+            visible=False,
+            alignment=ft.alignment.center,
+            bgcolor=ft.Colors.with_opacity(0.5, ft.Colors.BLACK),
+            expand=True,
+            content=ft.Container(
+                width=400,
+                height=150,
+                bgcolor=ft.Colors.WHITE,
+                border_radius=15,
+                padding=ft.padding.all(20),
+                alignment=ft.alignment.center,
+                content=ft.Column(
+                    spacing=20,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Text("Confirm Logout", size=18, weight="bold"),
+                        ft.Text("Are you sure you want to logout?", size=14, color=ft.Colors.GREY),
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=10,
+                            controls=[
+                                ft.ElevatedButton(
+                                    "Cancel",
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ft.Colors.GREY,
+                                        color=ft.Colors.WHITE,
+                                        padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                                        shape=ft.RoundedRectangleBorder(radius=8),
+                                    ),
+                                    on_click=lambda e: close_logout_modal(),
+                                ),
+                                ft.ElevatedButton(
+                                    "Logout",
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ft.Colors.RED,
+                                        color=ft.Colors.WHITE,
+                                        padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                                        shape=ft.RoundedRectangleBorder(radius=8),
+                                    ),
+                                    on_click=lambda e: confirm_logout(),
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ),
+        )
+        page.overlay.append(logout_modal)
+
+        def confirm_logout():
+            logout_modal.visible = False
+            page.overlay.remove(logout_modal)
+            page.update()
+            page.clean()
+            page.bgcolor = "white"
             from views.login import main
-            main(page)  # Redirect to the login window
+            main(page)
             page.update()
 
-        def cancel_logout(e):
-            page.overlay.clear()  # Clear all elements from the overlay
-            page.update()  # Update the page to reflect changes
+        def close_logout_modal():
+            logout_modal.visible = False
+            page.overlay.remove(logout_modal)
+            page.update()
 
-        logout_dialog = ft.AlertDialog(
-            title=ft.Text("Confirm Logout"),
-            content=ft.Text("Are you sure you want to logout?"),
-            actions=[
-                ft.TextButton("Cancel", on_click=cancel_logout),
-                ft.TextButton("Logout", on_click=confirm_logout),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.overlay.append(logout_dialog)  # Add the dialog to the overlay
-        logout_dialog.open = True
+        logout_modal.visible = True
         page.update()
 
-    # Date Range and Filter Section
-    date_filter_row = ft.Row(
+    # --- FILTER CONTROLS ---
+    filter_toggle_row = ft.Row(
         controls=[
-            ft.Row(
-                controls=[
-                    ft.ElevatedButton("Today", bgcolor="#BB6F19", color="white"),
-                    ft.ElevatedButton("Week", bgcolor="#BB6F19", color="white"),
-                    ft.ElevatedButton("Month", bgcolor="#BB6F19", color="white"),
-                ],
-                spacing=10
-            ),
-            ft.Row(
-                controls=[
-                    ft.TextField(
-                        hint_text="Start Date",
-                        width=150,
-                        prefix_icon=ft.Icons.CALENDAR_MONTH,
-                        border=ft.InputBorder.OUTLINE,
-                        filled=True,
-                        bgcolor="white"
-                    ),
-                    ft.TextField(
-                        hint_text="End Date",
-                        width=150,
-                        prefix_icon=ft.Icons.CALENDAR_MONTH,
-                        border=ft.InputBorder.OUTLINE,
-                        filled=True,
-                        bgcolor="white"
-                    ),
-                    ft.ElevatedButton(
-                        "Apply",
-                        style=ft.ButtonStyle(
-                            bgcolor="#BB6F19",
-                            color="white",
-                            padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                            shape=ft.RoundedRectangleBorder(radius=8)
-                        )
-                    )
-                ],
-                spacing=10
-            ),
-            ft.Row(
-                controls=[
-                    ft.ElevatedButton("PDF", bgcolor="#BB6F19", color="white"),
-                    ft.ElevatedButton("Excel", bgcolor="#BB6F19", color="white"),
-                    ft.ElevatedButton("Print", bgcolor="#BB6F19", color="white"),
-                ],
-                spacing=10
-            )
+            ft.ElevatedButton("Today", style=ft.ButtonStyle(bgcolor="#BB6F19", color="white", shape=ft.RoundedRectangleBorder(radius=8)), disabled=True),
+            ft.ElevatedButton("Week", style=ft.ButtonStyle(bgcolor="#F5E9DA", color="#BB6F19", shape=ft.RoundedRectangleBorder(radius=8))),
+            ft.ElevatedButton("Month", style=ft.ButtonStyle(bgcolor="#F5E9DA", color="#BB6F19", shape=ft.RoundedRectangleBorder(radius=8))),
         ],
-        alignment="spaceBetween",
-        vertical_alignment="center",
-        spacing=20
+        spacing=10,
+        alignment="start",
     )
+    filter_date_row = ft.Row(
+        controls=[
+            ft.TextField(label="From", value="25/03/2025", width=140, prefix_icon=ft.Icons.CALENDAR_MONTH, border=ft.InputBorder.OUTLINE, filled=True, bgcolor="white"),
+            ft.TextField(label="To", value="25/03/2025", width=140, prefix_icon=ft.Icons.CALENDAR_MONTH, border=ft.InputBorder.OUTLINE, filled=True, bgcolor="white"),
+            ft.ElevatedButton("Apply", style=ft.ButtonStyle(bgcolor="#BB6F19", color="white", shape=ft.RoundedRectangleBorder(radius=8))),
+        ],
+        spacing=10,
+        alignment="start",
+    )
+    filter_controls = ft.Column([
+        filter_toggle_row,
+        ft.Container(filter_date_row, margin=ft.margin.only(top=10)),
+    ], spacing=8)
 
-    # Summary Cards Section
-    summary_cards = ft.Row(
-        controls=[
-            ft.Container(
-                width=300,
-                height=100,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Total Revenue", size=14, weight="bold", color="#BB6F19"),
-                        ft.Text("₱3,865.00", size=20, weight="bold"),
-                        ft.Text("+7.75% from last period", size=12, color="green")
-                    ],
-                    spacing=5
-                )
-            ),
-            ft.Container(
-                width=300,
-                height=100,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Total Profit", size=14, weight="bold", color="#BB6F19"),
-                        ft.Text("₱1,546.00", size=20, weight="bold"),
-                        ft.Text("+9.22% from last period", size=12, color="green")
-                    ],
-                    spacing=5
-                )
-            ),
-            ft.Container(
-                width=300,
-                height=100,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Column(
-                    controls=[
-                        ft.Text("Total Orders", size=14, weight="bold", color="#BB6F19"),
-                        ft.Text("97", size=20, weight="bold"),
-                        ft.Text("+20% from last period", size=12, color="green")
-                    ],
-                    spacing=5
-                )
-            )
-        ],
-        spacing=20
-    )
+    # --- METRIC CARDS ---
+    def metric_card(title, value, subtext, icon, icon_color, subtext_color):
+        return ft.Container(
+            bgcolor="white",
+            border_radius=16,
+            shadow=ft.BoxShadow(blur_radius=6, color=ft.Colors.with_opacity(0.10, ft.Colors.BLACK)),
+            padding=16,
+            margin=ft.margin.only(bottom=18),
+            content=ft.Column([
+                ft.Row([
+                    ft.Text(title, size=15, weight="bold", color="#BB6F19"),
+                    ft.Icon(icon, color=icon_color, size=22),
+                ], alignment="spaceBetween"),
+                ft.Container(
+                    content=ft.Text(value, size=26, weight="bold", color="#222", font_family="Poppins"),
+                    margin=ft.margin.only(top=8, bottom=2),
+                ),
+                ft.Row([
+                    ft.Icon(ft.Icons.ARROW_UPWARD, color=subtext_color, size=16),
+                    ft.Text(subtext, size=13, color=subtext_color, weight="bold"),
+                ], spacing=4),
+            ], spacing=4),
+            width=260,
+        )
+    metrics_column = ft.Column([
+        metric_card("Total Revenue", "₱3,865.00", "57.76% from last period", ft.Icons.CHECK_CIRCLE, "#22C55E", "#22C55E"),
+        metric_card("Total Profit", "₱1,546.00", "2.2% from last period", ft.Icons.TRENDING_UP, "#3B82F6", "#3B82F6"),
+        metric_card("Total Order", "97", "20% from last period", ft.Icons.SHOPPING_BAG, "#F59E42", "#F59E42"),
+    ], spacing=0)
 
-    # Graphs Section
-    graphs_section = ft.Row(
-        controls=[
-            ft.Container(
-                width=600,
-                height=300,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Text("Sales Trend Graph Placeholder", size=16, weight="bold", color="grey")
-            ),
-            ft.Container(
-                width=600,
-                height=300,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Text("Revenue Category Graph Placeholder", size=16, weight="bold", color="grey")
-            )
-        ],
-        spacing=20
-    )
+    # --- EXPORT BUTTONS ---
+    export_buttons = ft.Row([
+        ft.OutlinedButton("PDF", style=ft.ButtonStyle(color="#BB6F19", side=ft.border.all(1, "#BB6F19"), shape=ft.RoundedRectangleBorder(radius=8))),
+        ft.OutlinedButton("Excel", style=ft.ButtonStyle(color="#BB6F19", side=ft.border.all(1, "#BB6F19"), shape=ft.RoundedRectangleBorder(radius=8))),
+        ft.OutlinedButton("Print", style=ft.ButtonStyle(color="#BB6F19", side=ft.border.all(1, "#BB6F19"), shape=ft.RoundedRectangleBorder(radius=8))),
+    ], spacing=12, alignment="end")
 
-    # Additional Graphs Section
-    additional_graphs = ft.Row(
-        controls=[
-            ft.Container(
-                width=600,
-                height=300,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Text("Sales by Hour of the Day Graph Placeholder", size=16, weight="bold", color="grey")
-            ),
-            ft.Container(
-                width=600,
-                height=300,
-                bgcolor="white",
-                border_radius=10,
-                padding=10,
-                content=ft.Text("Additional Graph Placeholder", size=16, weight="bold", color="grey")
-            )
-        ],
-        spacing=20
+    # --- CHARTS (PLACEHOLDERS) ---
+    sales_trend_chart = ft.Container(
+        bgcolor="white",
+        border_radius=16,
+        padding=20,
+        margin=ft.margin.only(bottom=18),
+        content=ft.Text("Sales Trend Line Chart", size=18, color="#BB6F19", weight="bold", text_align="center"),
+        height=260,
+        expand=True,
     )
+    bar_chart = ft.Container(
+        bgcolor="white",
+        border_radius=16,
+        padding=20,
+        content=ft.Text("Sales by Hour of the Day (Bar Chart)", size=16, color="#BB6F19", text_align="center"),
+        height=180,
+        expand=True,
+    )
+    donut_chart = ft.Container(
+        bgcolor="white",
+        border_radius=16,
+        padding=20,
+        content=ft.Text("Revenue Category (Donut Chart)", size=16, color="#BB6F19", text_align="center"),
+        height=180,
+        width=260,
+    )
+    charts_row = ft.Row([
+        bar_chart,
+        donut_chart
+    ], spacing=18, alignment="start")
+    right_charts_column = ft.Column([
+        export_buttons,
+        sales_trend_chart,
+        charts_row
+    ], spacing=0, expand=True)
+
+    # --- MAIN CONTENT LAYOUT ---
+    main_content = ft.Row([
+        ft.Column([
+            filter_controls,
+            metrics_column
+        ], spacing=24, expand=1),
+        ft.Container(right_charts_column, expand=2, margin=ft.margin.only(left=28)),
+    ], spacing=24, expand=True)
 
     # User Profile Card
     def user_profile_card():
@@ -302,32 +298,19 @@ def reports_view(page: ft.Page):
             shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.1, ft.Colors.BLACK)),
         )
 
-    # Main layout
+    # --- PAGE RETURN ---
     return ft.Container(
-        content=ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[
-                        ft.Column(
-                            controls=[
-                                ft.Text("Sales Report", size=24, weight="bold", color="#BB6F19"),
-                                ft.Text("Monday, 25 March 2025", size=14, color="black"),
-                            ],
-                            expand=True
-                        ),
-                        user_profile_card()
-                    ],
-                    alignment="spaceBetween",
-                    vertical_alignment="center"
-                ),
-                ft.Divider(height=2, thickness=1, color="#BB6F19"),
-                date_filter_row,
-                summary_cards,
-                graphs_section,
-                additional_graphs
-            ],
-            spacing=20
-        ),
+        content=ft.Column([
+            ft.Row([
+                ft.Column([
+                    ft.Text("Sales Report", size=24, weight="bold", color="#BB6F19"),
+                    ft.Text("Monday, 25 March 2025", size=14, color="black"),
+                ], expand=True),
+                user_profile_card()
+            ], alignment="spaceBetween", vertical_alignment="center"),
+            ft.Divider(height=2, thickness=1, color="#BB6F19"),
+            ft.Container(main_content, padding=20, expand=True)
+        ], spacing=20),
         padding=20,
         expand=True
     )
