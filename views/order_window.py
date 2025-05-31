@@ -1645,24 +1645,26 @@ def confirm_order():
     subtotal = sum(order[5] for order in orders)  # price
     add_ons_total = sum(len(order[3].split(", ")) * 9 if order[3] else 0 for order in orders)
     grand_total = subtotal + add_ons_total
+    
+    order_code = get_next_transaction_code()  # ✅ Call only once
 
     try:
         conn = get_db_connection()
         if conn and conn.is_connected():
             cursor = conn.cursor()
-            # Only insert transaction here, let DB auto-increment transaction_id
+
             cursor.execute("""
                 INSERT INTO transactions (order_number, order_code, payment_method, total_amount, status)
                 VALUES (%s, %s, %s, %s, %s)
             """, (
                 orders[0][0],
-                get_next_transaction_code(),
+                order_code,
                 selected_payment_method or "Cash",
                 grand_total,
                 "Normal"
             ))
             transaction_id = cursor.lastrowid
-            order_code = get_next_transaction_code()
+
             # Update orders to mark them as confirmed and set their transaction_id
             for order in orders:
                 cursor.execute("""

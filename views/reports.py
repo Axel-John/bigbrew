@@ -442,6 +442,64 @@ def reports_view(page: ft.Page):
 
     # Initialize charts with the default timeline
     bar_chart, sales_trend_chart = build_line_and_bar_charts(page, state.filter)
+    
+    def update_donut_chart(filter_type):
+        # Fetch data dynamically based on the filter type
+        if filter_type == "today":
+            start_date = datetime.date.today()
+            end_date = start_date + datetime.timedelta(days=1)
+        elif filter_type == "week":
+            start_date = datetime.date.today() - datetime.timedelta(days=6)
+            end_date = datetime.date.today() + datetime.timedelta(days=1)
+        elif filter_type == "month":
+            start_date = datetime.date.today().replace(day=1)
+            end_date = (start_date.replace(month=start_date.month % 12 + 1, day=1) - datetime.timedelta(days=1)).replace(day=start_date.day)
+        else:
+            start_date = datetime.date.today()
+            end_date = start_date + datetime.timedelta(days=1)
+
+        conn = get_db_connection()
+        if conn and conn.is_connected():
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT p.type, COALESCE(SUM(o.quantity), 0) as total_quantity
+                    FROM products p
+                    LEFT JOIN orders o ON p.name = o.product_name
+                    WHERE o.created_at >= %s AND o.created_at < %s AND o.status != 'Pending'
+                    GROUP BY p.type
+                    ORDER BY total_quantity DESC
+                """, (start_date, end_date))
+                results = cursor.fetchall()
+                categories = [stat[0] for stat in results]
+                values = [stat[1] for stat in results]
+
+                # Handle case where there are no orders
+                if not values or sum(values) == 0:
+                    categories = ["No Orders"]
+                    values = [0]
+
+                total = sum(values) if values else 1  # Prevent division by zero
+                pie_sections = [
+                    ft.PieChartSection(
+                        values[i],
+                        title=f"{int(values[i] / total * 100)}%" if total > 0 else "0%",
+                        title_style=normal_title_style,
+                        color=colors[i % len(colors)],
+                        radius=normal_radius,
+                    ) for i in range(len(categories))
+                ]
+                legends.controls = [
+                    create_legend_item(colors[i % len(colors)], categories[i], values[i]) for i in range(len(categories))
+                ]
+                chart.sections = pie_sections
+                chart.update()
+            except Exception as e:
+                print(f"Error updating donut chart: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+                
     update_donut_chart(state.filter)  # Ensure the donut chart is initialized with "today"
 
     # --- LEGENDS ---
@@ -521,64 +579,7 @@ def reports_view(page: ft.Page):
             legends,  # Added legends to the right side of the donut chart
         ], spacing=10),
     )
-
-    def update_donut_chart(filter_type):
-        # Fetch data dynamically based on the filter type
-        if filter_type == "today":
-            start_date = datetime.date.today()
-            end_date = start_date + datetime.timedelta(days=1)
-        elif filter_type == "week":
-            start_date = datetime.date.today() - datetime.timedelta(days=6)
-            end_date = datetime.date.today() + datetime.timedelta(days=1)
-        elif filter_type == "month":
-            start_date = datetime.date.today().replace(day=1)
-            end_date = (start_date.replace(month=start_date.month % 12 + 1, day=1) - datetime.timedelta(days=1)).replace(day=start_date.day)
-        else:
-            start_date = datetime.date.today()
-            end_date = start_date + datetime.timedelta(days=1)
-
-        conn = get_db_connection()
-        if conn and conn.is_connected():
-            cursor = conn.cursor()
-            try:
-                cursor.execute("""
-                    SELECT p.type, COALESCE(SUM(o.quantity), 0) as total_quantity
-                    FROM products p
-                    LEFT JOIN orders o ON p.name = o.product_name
-                    WHERE o.created_at >= %s AND o.created_at < %s AND o.status != 'Pending'
-                    GROUP BY p.type
-                    ORDER BY total_quantity DESC
-                """, (start_date, end_date))
-                results = cursor.fetchall()
-                categories = [stat[0] for stat in results]
-                values = [stat[1] for stat in results]
-
-                # Handle case where there are no orders
-                if not values or sum(values) == 0:
-                    categories = ["No Orders"]
-                    values = [0]
-
-                total = sum(values) if values else 1  # Prevent division by zero
-                pie_sections = [
-                    ft.PieChartSection(
-                        values[i],
-                        title=f"{int(values[i] / total * 100)}%" if total > 0 else "0%",
-                        title_style=normal_title_style,
-                        color=colors[i % len(colors)],
-                        radius=normal_radius,
-                    ) for i in range(len(categories))
-                ]
-                legends.controls = [
-                    create_legend_item(colors[i % len(colors)], categories[i], values[i]) for i in range(len(categories))
-                ]
-                chart.sections = pie_sections
-                chart.update()
-            except Exception as e:
-                print(f"Error updating donut chart: {e}")
-            finally:
-                cursor.close()
-                conn.close()
-
+    
     # --- FILTER CONTROLS ---
     def update_charts(filter_type):
         state.filter = filter_type  # Update the filter state
@@ -628,17 +629,11 @@ def reports_view(page: ft.Page):
                         bgcolor=ft.Colors.WHITE,
                         radius=20
                     ),
-                    ft.Text(title, weight="bold", size=20, font_family="Poppins"),
+                    ft.Text(title, weight="bold", size=16, font_family="Poppins"),
                 ], spacing=8, alignment="center", vertical_alignment="center"),
                 
-                # Spacer to push amount to center
-                ft.Container(height=20),
-                
                 # Amount in the center
-                ft.Text(value, size=36, weight="bold", font_family="Poppins", text_align="center"),
-                
-                # Spacer to push percentage to bottom
-                ft.Container(height=20),
+                ft.Text(value, size=28, weight="bold", font_family="Poppins", text_align="center"),
                 
                 # Percentage and text at the bottom
                 ft.Column([
@@ -658,8 +653,8 @@ def reports_view(page: ft.Page):
             border=ft.border.all(1, ft.Colors.BLACK),
             shadow=ft.BoxShadow(blur_radius=4, color=ft.Colors.with_opacity(0.08, ft.Colors.BLACK)),
             expand=True,
-            height=230,
-            width=300
+            height=150,
+            width=380
         )
 
     def fetch_report_metrics():

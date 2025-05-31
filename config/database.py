@@ -245,16 +245,21 @@ def fetch_pending_orders():
 
 def get_next_transaction_code():
     conn = get_db_connection()
-    if conn and conn.is_connected():
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM transactions")
-        count = cursor.fetchone()[0]
-        next_id = count + 1
-        code = f"BBT{next_id:04d}"
-        cursor.close()
-        conn.close()
-        return code
-    return "BBT0001"
+    cursor = None
+    try:
+        if conn and conn.is_connected():
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM transactions")
+            count = cursor.fetchone()[0]
+            next_id = count + 1
+            return f"BBT{next_id:04d}"
+        return "BBT0001"
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
 
 def clear_pending_orders():
     conn = get_db_connection()
