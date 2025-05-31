@@ -1,5 +1,15 @@
 import flet as ft
 from config.database import get_db_connection, get_employee_full_name
+import os
+import datetime
+
+# Cache for storing generated charts
+chart_cache = {}
+
+class ReportState:
+    def __init__(self):
+        self.filter = "today"
+state = ReportState()
 
 def get_admin_full_name():
     try:
@@ -16,6 +26,277 @@ def get_admin_full_name():
         return "Admin"
 
 admin_full_name = get_admin_full_name()
+
+def get_products_ordered_by_hour(date):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    results = []
+    for hour in range(13, 20):  # 1PM (13) to 7PM (19)
+        start = datetime.datetime.combine(date, datetime.time(hour, 0, 0))
+        end = start + datetime.timedelta(hours=1)
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(quantity), 0)
+            FROM orders
+            WHERE created_at >= %s AND created_at < %s
+            """,
+            (start, end)
+        )
+        count = cursor.fetchone()[0]
+        results.append(count)
+    cursor.close()
+    conn.close()
+    return results
+
+def get_products_ordered_by_day(start_date, days):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    results = []
+    for i in range(days):
+        day = start_date + datetime.timedelta(days=i)
+        start = datetime.datetime.combine(day, datetime.time(0, 0, 0))
+        end = start + datetime.timedelta(days=1)
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(quantity), 0)
+            FROM orders
+            WHERE created_at >= %s AND created_at < %s
+            """,
+            (start, end)
+        )
+        count = cursor.fetchone()[0]
+        results.append(count)
+    cursor.close()
+    conn.close()
+    return results
+
+def get_product_type_statistics():
+    conn = get_db_connection()
+    if conn and conn.is_connected():
+        cursor = conn.cursor()
+        try:
+            # Get the sum of quantities for each product type from orders
+            cursor.execute("""
+                SELECT p.type, COALESCE(SUM(o.quantity), 0) as total_quantity
+                FROM products p
+                LEFT JOIN orders o ON p.name = o.product_name
+                WHERE o.status != 'Pending'
+                GROUP BY p.type
+                ORDER BY total_quantity DESC
+            """)
+            results = cursor.fetchall()
+            return results
+        except Exception as e:
+            print(f"Error getting product statistics: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+    return []
+
+def build_line_and_bar_charts(page, filter_type):
+    max_x_val = 6  # Default fallback
+    if filter_type == "today":
+        today_date = datetime.date.today()
+        yesterday_date = today_date - datetime.timedelta(days=1)
+        hours = ["1PM", "2PM", "3PM", "4PM", "5PM", "6PM", "7PM"]
+        today = get_products_ordered_by_hour(today_date)
+        yesterday = get_products_ordered_by_hour(yesterday_date)
+        x_labels = hours
+        x_label_objs = [
+            ft.ChartAxisLabel(value=i, label=ft.Text(hours[i], size=14, weight=ft.FontWeight.BOLD)) for i in range(len(hours))
+        ]
+        bar_x_labels = x_labels
+        bar_x_label_objs = x_label_objs
+        max_x_val = len(hours) - 1
+    elif filter_type == "week":
+        today_date = datetime.date.today()
+        start_date = today_date - datetime.timedelta(days=6)
+        days = [(start_date + datetime.timedelta(days=i)).strftime("%a") for i in range(7)]
+        this_week = get_products_ordered_by_day(start_date, 7)
+        last_week_start = start_date - datetime.timedelta(days=7)
+        last_week = get_products_ordered_by_day(last_week_start, 7)
+        today = this_week
+        yesterday = last_week
+        x_labels = days
+        x_label_objs = [
+            ft.ChartAxisLabel(value=i, label=ft.Text(days[i], size=14, weight=ft.FontWeight.BOLD)) for i in range(len(days))
+        ]
+        bar_x_labels = x_labels
+        bar_x_label_objs = x_label_objs
+        max_x_val = len(days) - 1
+    elif filter_type == "month":
+        today_date = datetime.date.today()
+        start_date = today_date.replace(day=1)
+        days_in_month = (today_date.replace(month=today_date.month % 12 + 1, day=1) - datetime.timedelta(days=1)).day
+        # Get per-day data for this and last month
+        this_month = get_products_ordered_by_day(start_date, days_in_month)
+        prev_month_last_day = start_date - datetime.timedelta(days=1)
+        prev_month_start = prev_month_last_day.replace(day=1)
+        prev_month_days = prev_month_last_day.day
+        last_month = get_products_ordered_by_day(prev_month_start, prev_month_days)
+        # Group into 4 buckets: 1-7, 8-14, 15-21, 22-28 (always 4 buckets)
+        def group_weekly(data):
+            buckets = []
+            for i in range(0, 28, 7):  # Always 4 buckets for 28 days
+                if i < len(data):
+                    buckets.append(sum(data[i:i+7]))
+                else:
+                    buckets.append(0)
+            while len(buckets) < 4:
+                buckets.append(0)
+            return buckets[:4]
+        today = group_weekly(this_month)
+        yesterday = group_weekly(last_month)
+        x_labels = ["WK1", "WK2", "WK3", "WK4"]
+        x_label_objs = [
+            ft.ChartAxisLabel(value=i, label=ft.Text(x_labels[i], size=14, weight=ft.FontWeight.BOLD)) for i in range(4)
+        ]
+        bar_x_labels = x_labels
+        bar_x_label_objs = [
+            ft.ChartAxisLabel(value=i, label=ft.Text(x_labels[i], size=14, weight=ft.FontWeight.BOLD)) for i in range(4)
+        ]
+        max_x_val = 3
+    else:
+        today = yesterday = x_labels = x_label_objs = bar_x_labels = bar_x_label_objs = []
+
+    today_data = [ft.LineChartDataPoint(x, y) for x, y in enumerate(today)]
+    yesterday_data = [ft.LineChartDataPoint(x, y) for x, y in enumerate(yesterday)]
+    bar_chart = ft.Container(
+        bgcolor="white",
+        border_radius=16,
+        padding=20,
+        width=1000,
+        content=ft.Column([
+            ft.Text("Sales by Hour of the Day", size=16, color="#BB6F19", weight="bold"),
+            ft.Row([
+                ft.Row([
+                    ft.Container(width=16, height=8, bgcolor="#BB6F19", border_radius=4),
+                    ft.Text("Today", size=14, weight=ft.FontWeight.BOLD),
+                ], spacing=8),
+                ft.Row([
+                    ft.Container(width=16, height=8, bgcolor="#D4A76A", border_radius=4),
+                    ft.Text("Yesterday", size=14, weight=ft.FontWeight.BOLD),
+                ], spacing=8),
+            ], spacing=20, alignment="start"),
+            ft.LineChart(
+                data_series=[
+                    ft.LineChartData(
+                        data_points=today_data,
+                        stroke_width=4,
+                        color="#BB6F19",
+                        curved=True,
+                        stroke_cap_round=True,
+                    ),
+                    ft.LineChartData(
+                        data_points=yesterday_data,
+                        stroke_width=4,
+                        color="#D4A76A",
+                        curved=True,
+                        stroke_cap_round=True,
+                    ),
+                ],
+                border=ft.border.all(3, ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE)),
+                horizontal_grid_lines=ft.ChartGridLines(
+                    interval=10, color=ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE), width=1
+                ),
+                vertical_grid_lines=ft.ChartGridLines(
+                    interval=1, color=ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE), width=1
+                ),
+                left_axis=ft.ChartAxis(
+                    labels=[
+                        ft.ChartAxisLabel(value=0, label=ft.Text("0", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=10, label=ft.Text("10", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=20, label=ft.Text("20", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=30, label=ft.Text("30", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=40, label=ft.Text("40", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=50, label=ft.Text("50", size=14, weight=ft.FontWeight.BOLD)),
+                    ],
+                    labels_size=40,
+                ),
+                bottom_axis=ft.ChartAxis(
+                    labels=x_label_objs,
+                    labels_size=32,
+                ),
+                tooltip_bgcolor=ft.Colors.with_opacity(0.8, ft.Colors.BLUE_GREY),
+                min_y=0,
+                max_y=50,
+                min_x=0,
+                max_x=max_x_val if today else 6,
+                width=1000,
+                height=300,
+                expand=True,
+            ),
+        ], spacing=10),
+        height=350,
+    )
+
+    bar_groups = [
+        ft.BarChartGroup(
+            x=i,
+            bar_rods=[
+                ft.BarChartRod(
+                    from_y=0,
+                    to_y=today[i],
+                    width=32,
+                    color="#BB6F19",
+                    border_radius=0,
+                )
+            ],
+        ) for i in range(len(bar_x_labels))
+    ]
+    sales_trend_chart = ft.Container(
+        bgcolor="white",
+        border_radius=16,
+        padding=20,
+        width=350,
+        height=250,
+        content=ft.Column([
+            ft.Text("Weekly Sales Trend", size=16, color="#BB6F19", weight="bold"),
+            ft.BarChart(
+                bar_groups=bar_groups,
+                groups_space=16,
+                border=ft.border.all(1, ft.Colors.GREY_400),
+                left_axis=ft.ChartAxis(
+                    labels=[
+                        ft.ChartAxisLabel(value=0, label=ft.Text("0", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=5, label=ft.Text("5", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=10, label=ft.Text("10", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=15, label=ft.Text("15", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=20, label=ft.Text("20", size=14, weight=ft.FontWeight.BOLD)),
+                        ft.ChartAxisLabel(value=30, label=ft.Text("30", size=14, weight=ft.FontWeight.BOLD)),
+                    ],
+                    labels_size=40,
+                ),
+                bottom_axis=ft.ChartAxis(
+                    labels=bar_x_label_objs,
+                    labels_size=40,
+                ),
+                horizontal_grid_lines=ft.ChartGridLines(
+                    interval=5, color=ft.Colors.GREY_300, width=1
+                ),
+                tooltip_bgcolor=ft.Colors.with_opacity(0.5, ft.Colors.GREY_300),
+                max_y=30,
+                interactive=True,
+                width=320,
+                height=160,
+                expand=True,
+            ),
+        ], spacing=10),
+    )
+    return bar_chart, sales_trend_chart
+
+def filter_button(label, filter_type, selected, on_click):
+    return ft.ElevatedButton(
+        label,
+        style=ft.ButtonStyle(
+            bgcolor="#BB6F19" if selected else "#F5E9DA",
+            color="white" if selected else "#BB6F19",
+            shape=ft.RoundedRectangleBorder(radius=8),
+        ),
+        on_click=lambda e: on_click(filter_type),
+        disabled=False,
+    )
 
 def reports_view(page: ft.Page):
     # Fetch logged-in user's name
@@ -150,20 +431,89 @@ def reports_view(page: ft.Page):
         logout_modal.visible = True
         page.update()
 
+    # --- CHARTS ---
+    # Get real data from database
+    product_stats = get_product_type_statistics()
+    categories = [stat[0] for stat in product_stats]  # Product types
+    values = [stat[1] for stat in product_stats]      # Quantities
+    colors = ['#BB6F19', '#F5E9DA', '#D4A76A', '#8B4513', '#D2691E', '#CD853F']  # Added more colors for variety
+
+    # Initialize charts
+    bar_chart, sales_trend_chart = build_line_and_bar_charts(page, state.filter)
+
+    # --- DONUT CHART (Interactive Pie Chart) ---
+    normal_radius = 50
+    hover_radius = 60
+    normal_title_style = ft.TextStyle(
+        size=16, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD
+    )
+    hover_title_style = ft.TextStyle(
+        size=22,
+        color=ft.Colors.WHITE,
+        weight=ft.FontWeight.BOLD,
+        shadow=ft.BoxShadow(blur_radius=2, color=ft.Colors.BLACK54),
+    )
+    # Calculate percentages for the pie chart
+    total = sum(values) if values else 1  # Prevent division by zero
+    pie_sections = [
+        ft.PieChartSection(
+            values[i],
+            title=f"{int(values[i] / total * 100)}%" if total > 0 else "0%",
+            title_style=normal_title_style,
+            color=colors[i % len(colors)],  # Cycle through colors if more categories than colors
+            radius=normal_radius,
+        ) for i in range(len(categories))
+    ]
+    def on_chart_event(e: ft.PieChartEvent):
+        for idx, section in enumerate(chart.sections):
+            if idx == e.section_index:
+                section.radius = hover_radius
+                section.title_style = hover_title_style
+            else:
+                section.radius = normal_radius
+                section.title_style = normal_title_style
+        chart.update()
+    chart = ft.PieChart(
+        sections=pie_sections,
+        sections_space=0,
+        center_space_radius=40,
+        on_chart_event=on_chart_event,
+        expand=True,
+    )
+    donut_chart = ft.Container(
+        bgcolor="white",
+        border_radius=16,
+        padding=20,
+        width=350,
+        height=250,
+        content=ft.Column([
+            ft.Text("Revenue by Category", size=16, color="#BB6F19", weight="bold"),
+            chart,
+        ], spacing=10),
+    )
+
     # --- FILTER CONTROLS ---
+    def update_charts(filter_type):
+        state.filter = filter_type
+        bar_chart, sales_trend_chart = build_line_and_bar_charts(page, filter_type)
+        right_charts_column.controls[0] = bar_chart
+        right_charts_column.controls[1] = charts_row
+        charts_row.controls[0] = sales_trend_chart
+        page.update()
+
     filter_toggle_row = ft.Row(
         controls=[
-            ft.ElevatedButton("Today", style=ft.ButtonStyle(bgcolor="#BB6F19", color="white", shape=ft.RoundedRectangleBorder(radius=8)), disabled=True),
-            ft.ElevatedButton("Week", style=ft.ButtonStyle(bgcolor="#F5E9DA", color="#BB6F19", shape=ft.RoundedRectangleBorder(radius=8))),
-            ft.ElevatedButton("Month", style=ft.ButtonStyle(bgcolor="#F5E9DA", color="#BB6F19", shape=ft.RoundedRectangleBorder(radius=8))),
+            filter_button("Today", "today", state.filter == "today", update_charts),
+            filter_button("Week", "week", state.filter == "week", update_charts),
+            filter_button("Month", "month", state.filter == "month", update_charts),
         ],
         spacing=10,
         alignment="start",
     )
     filter_date_row = ft.Row(
         controls=[
-            ft.TextField(label="From", value="25/03/2025", width=140, prefix_icon=ft.Icons.CALENDAR_MONTH, border=ft.InputBorder.OUTLINE, filled=True, bgcolor="white"),
-            ft.TextField(label="To", value="25/03/2025", width=140, prefix_icon=ft.Icons.CALENDAR_MONTH, border=ft.InputBorder.OUTLINE, filled=True, bgcolor="white"),
+            ft.TextField(label="From", value="", width=140, prefix_icon=ft.Icons.CALENDAR_MONTH, border=ft.InputBorder.OUTLINE, filled=True, bgcolor="white"),
+            ft.TextField(label="To", value="", width=140, prefix_icon=ft.Icons.CALENDAR_MONTH, border=ft.InputBorder.OUTLINE, filled=True, bgcolor="white"),
             ft.ElevatedButton("Apply", style=ft.ButtonStyle(bgcolor="#BB6F19", color="white", shape=ft.RoundedRectangleBorder(radius=8))),
         ],
         spacing=10,
@@ -204,48 +554,15 @@ def reports_view(page: ft.Page):
         metric_card("Total Order", "97", "20% from last period", ft.Icons.SHOPPING_BAG, "#F59E42", "#F59E42"),
     ], spacing=0)
 
-    # --- EXPORT BUTTONS ---
-    export_buttons = ft.Row([
-        ft.OutlinedButton("PDF", style=ft.ButtonStyle(color="#BB6F19", side=ft.border.all(1, "#BB6F19"), shape=ft.RoundedRectangleBorder(radius=8))),
-        ft.OutlinedButton("Excel", style=ft.ButtonStyle(color="#BB6F19", side=ft.border.all(1, "#BB6F19"), shape=ft.RoundedRectangleBorder(radius=8))),
-        ft.OutlinedButton("Print", style=ft.ButtonStyle(color="#BB6F19", side=ft.border.all(1, "#BB6F19"), shape=ft.RoundedRectangleBorder(radius=8))),
-    ], spacing=12, alignment="end")
-
-    # --- CHARTS (PLACEHOLDERS) ---
-    sales_trend_chart = ft.Container(
-        bgcolor="white",
-        border_radius=16,
-        padding=20,
-        margin=ft.margin.only(bottom=18),
-        content=ft.Text("Sales Trend Line Chart", size=18, color="#BB6F19", weight="bold", text_align="center"),
-        height=260,
-        expand=True,
-    )
-    bar_chart = ft.Container(
-        bgcolor="white",
-        border_radius=16,
-        padding=20,
-        content=ft.Text("Sales by Hour of the Day (Bar Chart)", size=16, color="#BB6F19", text_align="center"),
-        height=180,
-        expand=True,
-    )
-    donut_chart = ft.Container(
-        bgcolor="white",
-        border_radius=16,
-        padding=20,
-        content=ft.Text("Revenue Category (Donut Chart)", size=16, color="#BB6F19", text_align="center"),
-        height=180,
-        width=260,
-    )
+    # --- CHARTS ---
     charts_row = ft.Row([
-        bar_chart,
-        donut_chart
-    ], spacing=18, alignment="start")
-    right_charts_column = ft.Column([
-        export_buttons,
         sales_trend_chart,
+        donut_chart
+    ], spacing=18, alignment="start", vertical_alignment="start")
+    right_charts_column = ft.Column([
+        bar_chart,
         charts_row
-    ], spacing=0, expand=True)
+    ], spacing=20, expand=True)
 
     # --- MAIN CONTENT LAYOUT ---
     main_content = ft.Row([
